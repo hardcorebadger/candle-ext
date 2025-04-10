@@ -8,12 +8,21 @@
   'use strict';
 
   // Configuration
-  const CONFIG = {
-    APP_URL: 'https://tiktrack.jaketrefethen.com',  // Replace with your Next.js app URL
+  const CONFIG_PROD = {
+    APP_URL: 'https://candle-app-delta.vercel.app',  // Replace with your Next.js app URL
     SIDEBAR_WIDTH: 380,                // Default sidebar width in pixels
     STORAGE_KEY: 'candle_sidebar_state',
-    ALLOWED_ORIGINS: ['https://tiktrack.jaketrefethen.com']
+    ALLOWED_ORIGINS: ['https://candle-app-delta.vercel.app']
   };
+
+  const CONFIG_DEV = {
+    APP_URL: 'http://localhost:3000',  // Replace with your Next.js app URL
+    SIDEBAR_WIDTH: 380,                // Default sidebar width in pixels
+    STORAGE_KEY: 'candle_sidebar_state',
+    ALLOWED_ORIGINS: ['http://localhost:3000']
+  };
+
+  const CONFIG = CONFIG_DEV;
 
   // State
   let isSidebarVisible = true;
@@ -21,9 +30,7 @@
   let resizing = false;
   let sidebarFrame = null;
   let isConnected = false;
-  let chartData = null;
-  let highlightedElements = {};
-  let lastMessageId = 0;
+  let lastRequestId = 0;
   let pendingResponses = {};
 
   // DOM Elements
@@ -31,23 +38,28 @@
   let toggle = null;
   let resizeHandle = null;
 
+  
+
   /**
    * Initialize the extension
    */
   function initialize() {
-    console.log('Candle content script loaded');
     
     // Only run on TradingView
     if (!isTradingViewPage()) {
+
       return;
     }
-    console.log('Candle detected TradingView page');
+
+    console.log('Candle extension initializing...');
 
     // Set up interface
     setupInterface();
 
     // Listen for messages from the iframe
     window.addEventListener('message', handleFrameMessage, false);
+
+    console.log('Candle initialized.');
   }
 
   /**
@@ -155,7 +167,6 @@
 
     // Save state on unload
     window.addEventListener('beforeunload', saveSidebarState);
-    
   }
 
   /**
@@ -172,7 +183,7 @@
     
     // Notify frame of visibility change
     if (isConnected && isSidebarVisible) {
-      sendMessageToFrame('visibility-changed', { visible: true });
+      sendRequest({ route: 'visibility-changed', data: { visible: true } });
     }
   }
 
@@ -243,6 +254,46 @@
     }
   }
 
+  // Transport Layer
+  function sendPacket(packet) {
+      if (!sidebarFrame || !sidebarFrame.contentWindow) {
+        throw new Error('Frame not available');
+      }
+      sidebarFrame.contentWindow.postMessage(packet, CONFIG.APP_URL);
+  }
+
+  // Request/Response Layer
+  async function sendRequest(request, timeout = 10000) {
+      const requestId = ++lastRequestId;
+      const packet = {
+        type: 'request',
+        from: 'js',
+        requestId,
+        data: request
+      };
+      
+      sendPacket(packet);
+
+      return new Promise((resolve, reject) => {
+        pendingResponses[requestId] = { resolve, reject };
+        
+        setTimeout(() => {
+          if (pendingResponses[requestId]) {
+            reject(new Error('Response timeout'));
+            delete pendingResponses[requestId];
+          }
+        }, timeout);
+      });
+  }
+
+  // Request Handler
+  function handleRequest(request) {
+    return {
+      success: true,
+      body: 'Hello from JS'
+    };
+  }
+
   /**
    * Handle messages from the iframe
    */
@@ -252,234 +303,36 @@
       return;
     }
 
-    const { type, messageId, data } = event.data;
-
-    console.log('Received message from frame:', messageId, type, data);
+    const packet = event.data;
     
-    
-  }
-
-  /**
-   * Send message to the iframe
-   */
-  function sendMessageToFrame(type, data, expectResponse = false) {
-    if (!sidebarFrame || !sidebarFrame.contentWindow) {
-      return Promise.reject(new Error('Frame not available'));
+    // Handle response packet
+    if (packet.type === 'response') {
+      const { requestId, data } = packet;
+      if (pendingResponses[requestId]) {
+        const { resolve } = pendingResponses[requestId];
+        const { success, error, body } = data;
+        if (success) {
+          resolve(body);
+        } else {
+          reject(new Error(error || 'Unknown error'));
+        }
+        delete pendingResponses[requestId];
+      }
+      return;
     }
-    
-    const messageId = ++lastMessageId;
-    
-    sidebarFrame.contentWindow.postMessage({
-      type,
-      messageId,
-      data
-    }, CONFIG.APP_URL);
 
-    console.log('Sent message to frame:', messageId, type, data);
-    
-    // if (expectResponse) {
-    //   return new Promise((resolve, reject) => {
-    //     pendingResponses[messageId] = { resolve, reject };
-        
-    //     // Timeout after 10 seconds
-    //     setTimeout(() => {
-    //       if (pendingResponses[messageId]) {
-    //         reject(new Error('Response timeout'));
-    //         delete pendingResponses[messageId];
-    //       }
-    //     }, 10000);
-    //   });
-    // }
-    
-    return Promise.resolve();
+    // Handle request packet
+    if (packet.type === 'request') {
+      const { requestId, data } = packet;
+      const response = handleRequest(data);
+      sendPacket({
+        type: 'response',
+        from: 'js',
+        requestId,
+        data: response
+      });
+    }
   }
-
-  /**
-   * EXAMPLES Handle request to get chart data
-   */
-  // function handleGetChartData(messageId) {
-  //   try {
-  //     // Extract chart data from TradingView
-  //     // This is a simplified example - actual implementation would need to
-  //     // access TradingView's chart data which requires more complex DOM interaction
-  //     const chartData = {
-  //       symbol: getChartSymbol(),
-  //       timeframe: getChartTimeframe(),
-  //       indicators: getChartIndicators(),
-  //       timestamp: Date.now()
-  //     };
-      
-  //     // Send response back
-  //     sendMessageToFrame('chart-data-response', {
-  //       success: true,
-  //       chartData
-  //     }, messageId);
-      
-  //   } catch (error) {
-  //     sendMessageToFrame('chart-data-response', {
-  //       success: false,
-  //       error: error.message
-  //     }, messageId);
-  //   }
-  // }
-
-  // /**
-  //  * Handle request to highlight an indicator
-  //  */
-  // function handleHighlightIndicator(data, messageId) {
-  //   const { indicatorId, highlight, color } = data;
-    
-  //   try {
-  //     // Find the indicator element - simplified example
-  //     const indicatorElement = document.querySelector(`[data-indicator-id="${indicatorId}"]`);
-      
-  //     if (!indicatorElement) {
-  //       throw new Error('Indicator element not found');
-  //     }
-      
-  //     if (highlight) {
-  //       // Highlight the indicator
-  //       const originalBackground = indicatorElement.style.backgroundColor;
-  //       indicatorElement.style.backgroundColor = color || '#2962ff';
-  //       indicatorElement.style.boxShadow = '0 0 8px rgba(41, 98, 255, 0.8)';
-        
-  //       // Store for later unhighlighting
-  //       highlightedElements[indicatorId] = {
-  //         element: indicatorElement,
-  //         originalBackground
-  //       };
-  //     } else if (highlightedElements[indicatorId]) {
-  //       // Unhighlight
-  //       const { element, originalBackground } = highlightedElements[indicatorId];
-  //       element.style.backgroundColor = originalBackground;
-  //       element.style.boxShadow = 'none';
-  //       delete highlightedElements[indicatorId];
-  //     }
-      
-  //     sendMessageToFrame('highlight-indicator-response', {
-  //       success: true,
-  //       indicatorId
-  //     }, messageId);
-      
-  //   } catch (error) {
-  //     sendMessageToFrame('highlight-indicator-response', {
-  //       success: false,
-  //       error: error.message,
-  //       indicatorId
-  //     }, messageId);
-  //   }
-  // }
-
-  // /**
-  //  * Handle request to observe a DOM element
-  //  */
-  // function handleObserveElement(data, messageId) {
-  //   const { selector, observe } = data;
-    
-  //   try {
-  //     // This is a simplified implementation
-  //     // A full implementation would set up a MutationObserver
-      
-  //     const response = {
-  //       success: true,
-  //       selector,
-  //       observing: observe
-  //     };
-      
-  //     sendMessageToFrame('observe-element-response', response, messageId);
-      
-  //   } catch (error) {
-  //     sendMessageToFrame('observe-element-response', {
-  //       success: false,
-  //       error: error.message,
-  //       selector
-  //     }, messageId);
-  //   }
-  // }
-
-  // /**
-  //  * Check for changes in the chart and notify the frame
-  //  */
-  // function checkChartChanges() {
-  //   if (!isConnected || !isSidebarVisible) return;
-    
-  //   try {
-  //     const newChartData = {
-  //       symbol: getChartSymbol(),
-  //       timeframe: getChartTimeframe(),
-  //       indicators: getChartIndicators(),
-  //       timestamp: Date.now()
-  //     };
-      
-  //     // Check if chart data has changed
-  //     if (hasChartDataChanged(chartData, newChartData)) {
-  //       chartData = newChartData;
-  //       sendMessageToFrame('chart-updated', { chartData });
-  //     }
-  //   } catch (error) {
-  //     console.error('Error checking chart changes:', error);
-  //   }
-  // }
-
-  // /**
-  //  * Helper function to get the current chart symbol
-  //  */
-  // function getChartSymbol() {
-  //   // Example implementation - would need to be adapted for actual TradingView DOM structure
-  //   const symbolElement = document.querySelector('.chart-header__symbol');
-  //   return symbolElement ? symbolElement.textContent.trim() : 'Unknown';
-  // }
-
-  // /**
-  //  * Helper function to get the current chart timeframe
-  //  */
-  // function getChartTimeframe() {
-  //   // Example implementation - would need to be adapted for actual TradingView DOM structure
-  //   const timeframeElement = document.querySelector('.chart-header__timeframe');
-  //   return timeframeElement ? timeframeElement.textContent.trim() : 'Unknown';
-  // }
-
-  // /**
-  //  * Helper function to get the current chart indicators
-  //  */
-  // function getChartIndicators() {
-  //   // Example implementation - would need to be adapted for actual TradingView DOM structure
-  //   const indicators = [];
-  //   const indicatorElements = document.querySelectorAll('.chart-header__indicators-item');
-    
-  //   indicatorElements.forEach((element, index) => {
-  //     indicators.push({
-  //       id: `indicator-${index}`,
-  //       name: element.textContent.trim()
-  //     });
-  //   });
-    
-  //   return indicators;
-  // }
-
-  // /**
-  //  * Check if chart data has changed significantly
-  //  */
-  // function hasChartDataChanged(oldData, newData) {
-  //   if (!oldData) return true;
-    
-  //   // Check if symbol or timeframe changed
-  //   if (oldData.symbol !== newData.symbol || oldData.timeframe !== newData.timeframe) {
-  //     return true;
-  //   }
-    
-  //   // Check if indicators changed
-  //   if (oldData.indicators.length !== newData.indicators.length) {
-  //     return true;
-  //   }
-    
-  //   // Check if more than 30 seconds have passed
-  //   if (newData.timestamp - oldData.timestamp > 30000) {
-  //     return true;
-  //   }
-    
-  //   return false;
-  // }
 
   // Start the extension
   initialize();
