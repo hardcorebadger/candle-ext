@@ -11,6 +11,9 @@
       "128": "images/icon128.png"
     }
   },
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": ["*://*.tradingview.com/*"],
@@ -25,7 +28,8 @@
     "tabs"
   ],
   "host_permissions": [
-    "*://your-nextjs-app-url.com/*"
+    "*://your-nextjs-app-url.com/*",
+    "<all_urls>"
   ],
   "web_accessible_resources": [
     {

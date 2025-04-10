@@ -7,6 +7,7 @@
 (function() {
   'use strict';
 
+
   // Configuration
   const CONFIG_PROD = {
     APP_URL: 'https://candle-app-delta.vercel.app',  // Replace with your Next.js app URL
@@ -47,7 +48,6 @@
     
     // Only run on TradingView
     if (!isTradingViewPage()) {
-
       return;
     }
 
@@ -58,8 +58,9 @@
 
     // Listen for messages from the iframe
     window.addEventListener('message', handleFrameMessage, false);
-
     console.log('Candle initialized.');
+
+    
   }
 
   /**
@@ -287,8 +288,8 @@
   }
 
   // Request Handler
-  function handleRequest(request) {
-    // console.log('JS Received request:', request);
+  async function handleRequest(request) {
+    console.log('JS Received request:', request);
     switch (request.route) {
       case 'debug':
         return {
@@ -297,6 +298,11 @@
         };
       case 'set-timeframe':
           return handleSetTimeframe(request.body);
+      case 'add-indicator':
+        return await handleAddIndicator(request.body);
+      case "grab-screen":
+        return await handleGrabScreen(request.body);
+      
       default:
         return {
           success: false,
@@ -317,6 +323,7 @@
       if (button.textContent === body.timeframe) {
         button.click();
         buttonFound = true;
+        return;
       }
     });
     if (!buttonFound) {
@@ -333,6 +340,86 @@
     }
   }
 
+  async function handleAddIndicator(body) {
+    console.log('Adding indicator:', body.indicator);
+    // find the buttons with class ".button-ptpAHg8E.withText-ptpAHg8E"
+    const buttons = document.querySelectorAll('.button-ptpAHg8E.withText-ptpAHg8E');
+    // console.log('Button count:', buttons.length);
+    const indicatorsButton = Array.from(buttons).find(button => button.textContent === "Indicators");
+    if (!indicatorsButton) {
+      return {
+        success: false,
+        error: new Error('Indicators button not found')
+      }
+    }
+    indicatorsButton.click();
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // type out the indicator name
+    const input = document.querySelector('.input-qm7Rg5MB');
+    input.value = body.indicator;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // find the divs with class ".container-WeNdU0sq"
+    const containers = document.querySelectorAll('.container-WeNdU0sq');
+    // console.log('Container count:', containers.length);
+    const rsiContainer = Array.from(containers).find(container => container.textContent === "Relative Strength Index");
+    if (!rsiContainer) {
+      return {
+        success: false,
+        error: new Error('Relative Strength Index container not found')
+      }
+    }
+    rsiContainer.click();
+
+    // hit the close button on the dialog. find the button with class ".close-BZKENkhT"
+    const closeButton = document.querySelector('.close-BZKENkhT');
+    closeButton.click();
+
+    return {
+      success: true,
+      body: {
+        indicator: body.indicator
+      }
+    }
+  }
+
+  async function handleGrabScreen(body) {
+    console.log('Grabbing screen');
+    
+    try {
+      // Request screenshot from background script
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          { action: 'captureScreenshot' },
+          response => {
+            if (response && response.success) {
+              resolve({
+                success: true,
+                body: {
+                  image: response.image
+                }
+              });
+            } else {
+              resolve({
+                success: false,
+                error: (response && response.error) || 'Failed to capture screenshot'
+              });
+            }
+          }
+        );
+      });
+    } catch (error) {
+      console.error('Error capturing screenshot:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to capture screenshot'
+      };
+    }
+  }
 
   /**
    * Handle messages from the iframe
@@ -364,13 +451,14 @@
     // Handle request packet
     if (packet.type === 'request') {
       const { requestId, data } = packet;
-      const response = handleRequest(data);
-      console.log("content.js responding to request:", requestId, data, response);
-      sendPacket({
-        type: 'response',
-        from: 'js',
-        requestId,
-        data: response
+      handleRequest(data).then(response => {
+        console.log("content.js responding to request:", requestId, data, response);
+        sendPacket({
+          type: 'response',
+          from: 'js',
+          requestId,
+          data: response
+        });
       });
     }
   }
