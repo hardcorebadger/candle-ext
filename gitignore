@@ -1,0 +1,35 @@
+# Node modules
+node_modules/
+
+# Build directories
+dist/
+build/
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-*
+.DS_Store
+
+# Generated files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Chrome extension packaged files
+*.crx
+*.pem
+*.zip
+
+# Icon placeholder files - uncomment when ready to track real icons
+# images/icon16.png
+# images/icon48.png
+# images/icon128.png 

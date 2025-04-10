@@ -1,0 +1,361 @@
+/* CSS variables for dynamic values */
+:root {
+  --candle-sidebar-width: 300px;
+}
+
+/* Main sidebar container */
+.candle-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: var(--candle-sidebar-width, 300px);
+  height: 100vh;
+  background-color: #1e1e2e;
+  color: #cdd6f4;
+  z-index: 9999;
+  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
+  display: flex;
+  transition: transform 0.3s ease;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* The main TradingView content - will be pushed when sidebar is open */
+body.candle-sidebar-open {
+  margin-right: var(--candle-sidebar-width, 300px);
+  transition: margin-right 0.3s ease;
+}
+
+/* TradingView specific content adjustments */
+body.candle-sidebar-open .js-rootresizer__contents {
+  width: calc(100% - var(--candle-sidebar-width, 300px)) !important;
+}
+
+body.candle-sidebar-open .layout__area--right,
+body.candle-sidebar-open .layout__area--left {
+  right: var(--candle-sidebar-width, 300px);
+}
+
+body.candle-sidebar-open #layout-manager-container {
+  width: calc(100% - var(--candle-sidebar-width, 300px)) !important;
+}
+
+/* When sidebar is collapsed */
+.candle-sidebar.collapsed {
+  transform: translateX(var(--candle-sidebar-width, 300px));
+}
+
+body.candle-sidebar-collapsed {
+  margin-right: 0;
+}
+
+body.candle-sidebar-collapsed .js-rootresizer__contents,
+body.candle-sidebar-collapsed #layout-manager-container {
+  width: 100% !important;
+}
+
+body.candle-sidebar-collapsed .layout__area--right,
+body.candle-sidebar-collapsed .layout__area--left {
+  right: 0;
+}
+
+/* Resize handle */
+.candle-resize-handle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  background-color: transparent;
+  z-index: 10000;
+}
+
+.candle-resize-handle:hover,
+body.candle-resizing .candle-resize-handle {
+  background-color: rgba(245, 158, 11, 0.3);
+}
+
+body.candle-resizing {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.candle-resizing * {
+  pointer-events: none !important;
+}
+
+/* Toggle button */
+.candle-toggle {
+  position: absolute;
+  left: -40px;
+  top: 20px;
+  width: 40px;
+  height: 40px;
+  background-color: #f59e0b;
+  border: none;
+  border-radius: 5px 0 0 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  transition: background-color 0.2s ease;
+  z-index: 10001;
+}
+
+.candle-toggle:hover {
+  background-color: #d97706;
+}
+
+/* Main content container */
+.candle-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 15px;
+}
+
+/* Header */
+.candle-header {
+  padding-bottom: 15px;
+  border-bottom: 1px solid #313244;
+  margin-bottom: 15px;
+}
+
+.candle-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+
+.candle-header h2::before {
+  content: '🔥';
+  margin-right: 8px;
+}
+
+/* Hello World message */
+.candle-hello-world {
+  padding: 15px;
+  background-color: #313244;
+  border-radius: 8px;
+  text-align: center;
+}
+
+/* Chat container */
+.candle-chat {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  scrollbar-width: thin;
+  scrollbar-color: #313244 #1e1e2e;
+}
+
+.candle-chat::-webkit-scrollbar {
+  width: 8px;
+}
+
+.candle-chat::-webkit-scrollbar-track {
+  background: #1e1e2e;
+}
+
+.candle-chat::-webkit-scrollbar-thumb {
+  background-color: #313244;
+  border-radius: 4px;
+}
+
+/* Message styling */
+.candle-message {
+  display: flex;
+  margin-bottom: 15px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.candle-avatar {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  margin-right: 10px;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.user-message .candle-avatar {
+  background-color: #313244;
+}
+
+.assistant-message .candle-avatar {
+  background-color: #f59e0b;
+}
+
+.candle-message-content {
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  background-color: #181825;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.user-message .candle-message-content {
+  background-color: #313244;
+}
+
+/* Input area */
+.candle-input-area {
+  padding: 15px;
+  border-top: 1px solid #313244;
+  display: flex;
+  align-items: flex-end;
+}
+
+#candle-input {
+  flex: 1;
+  border: 1px solid #313244;
+  background-color: #181825;
+  color: #cdd6f4;
+  border-radius: 8px;
+  padding: 12px;
+  resize: none;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  max-height: 150px;
+  transition: border-color 0.2s ease;
+}
+
+#candle-input:focus {
+  outline: none;
+  border-color: #f59e0b;
+}
+
+#candle-input::placeholder {
+  color: #6c7086;
+}
+
+.candle-send {
+  margin-left: 10px;
+  background-color: #f59e0b;
+  color: #1e1e2e;
+  border: none;
+  border-radius: 8px;
+  padding: 0 15px;
+  height: 40px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 0.2s ease;
+  flex-shrink: 0;
+}
+
+.candle-send:hover {
+  background-color: #d97706;
+}
+
+/* Loading indicator */
+.candle-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #1e1e2e;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10001;
+}
+
+.candle-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.candle-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(245, 158, 11, 0.2);
+  border-radius: 50%;
+  border-top-color: #f59e0b;
+  animation: spin 1s ease-in-out infinite;
+  margin-bottom: 16px;
+}
+
+.candle-loading-text {
+  color: #cdd6f4;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* iframe styling */
+.candle-app-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background-color: transparent;
+  z-index: 10000;
+}
+
+/* Code block styling */
+.candle-code-block {
+  background-color: #11111b;
+  border-radius: 6px;
+  padding: 10px;
+  margin: 10px 0;
+  font-family: monospace;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+/* Markdown styling */
+.candle-message-content h1,
+.candle-message-content h2,
+.candle-message-content h3 {
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.candle-message-content p {
+  margin: 8px 0;
+}
+
+.candle-message-content ul,
+.candle-message-content ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.candle-message-content a {
+  color: #f59e0b;
+  text-decoration: none;
+}
+
+.candle-message-content a:hover {
+  text-decoration: underline;
+}
+
+/* Emphasis for important information */
+.candle-highlight {
+  background-color: rgba(245, 158, 11, 0.2);
+  border-left: 3px solid #f59e0b;
+  padding: 8px 12px;
+  margin: 8px 0;
+  border-radius: 0 4px 4px 0;
+} 
