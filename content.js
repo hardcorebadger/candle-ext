@@ -288,11 +288,51 @@
 
   // Request Handler
   function handleRequest(request) {
+    // console.log('JS Received request:', request);
+    switch (request.route) {
+      case 'debug':
+        return {
+          success: true,
+          body: 'success'
+        };
+      case 'set-timeframe':
+          return handleSetTimeframe(request.body);
+      default:
+        return {
+          success: false,
+          error: 'Not found'
+        }
+    }
+  }
+
+  function handleSetTimeframe(body) {
+    // console.log('Setting timeframe to:', body.timeframe);
+    // find all buttons with class ".item-SqYYy1zF"
+    const buttons = document.querySelectorAll('.item-SqYYy1zF');
+    // console.log('Button count:', buttons.length);
+    let buttonFound = false;
+    buttons.forEach(button => {
+      // console.log('Button:', button.textContent);
+      // find the one whose text is the timeframe
+      if (button.textContent === body.timeframe) {
+        button.click();
+        buttonFound = true;
+      }
+    });
+    if (!buttonFound) {
+      return {
+        success: false,
+        error:new Error('Timeframe not found')
+      }
+    }
     return {
       success: true,
-      body: 'Hello from JS'
-    };
+      body: {
+        timeframe: body.timeframe
+      }
+    }
   }
+
 
   /**
    * Handle messages from the iframe
@@ -325,6 +365,7 @@
     if (packet.type === 'request') {
       const { requestId, data } = packet;
       const response = handleRequest(data);
+      console.log("content.js responding to request:", requestId, data, response);
       sendPacket({
         type: 'response',
         from: 'js',
