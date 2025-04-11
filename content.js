@@ -32,6 +32,7 @@
   let candlePanel = null;
   let originalPanelContent = null;
   let previousActiveButton = null; // Store the previously active button
+  let originalPanelStyle = null; // Store original panel styles
   
   // DOM selectors
   const SELECTORS = {
@@ -39,7 +40,9 @@
     panelContainer: '.widgetbar-pages',
     button: '.button-I_wb5FjE.apply-common-tooltip.common-tooltip-vertical.accessible-I_wb5FjE',
     defaultPanelContent: '.widgetbar-pagescontent',
-    activeButtonClass: 'isActive-I_wb5FjE'
+    activeButtonClass: 'isActive-I_wb5FjE',
+    widgetBar: '.widgetbar-widget',
+    resizeHandle: '.widgetbar-resizer' // The resize handle element
   };
 
   /**
@@ -102,6 +105,9 @@
   function setupInterface() {
     // Find and store reference to the original panel content
     originalPanelContent = document.querySelector(SELECTORS.defaultPanelContent);
+
+    // Store original panel styles
+    storeOriginalPanelState();
     
     // Create our panel that will contain the iframe
     createCandlePanel();
@@ -117,6 +123,23 @@
     
     // Also keep the mutation observer as a fallback
     observePanelContainer();
+  }
+
+  /**
+   * Store the original panel state to restore it later
+   */
+  function storeOriginalPanelState() {
+    // Capture the widget bar that contains the resize functionality
+    const widgetBar = document.querySelector(SELECTORS.widgetBar);
+    if (widgetBar) {
+      // Store the original style attributes
+      originalPanelStyle = {
+        width: widgetBar.style.width || '',
+        minWidth: widgetBar.style.minWidth || '',
+        maxWidth: widgetBar.style.maxWidth || '',
+        classList: [...widgetBar.classList]
+      };
+    }
   }
 
   /**
@@ -248,10 +271,15 @@
         if (defaultPanelContent && defaultPanelContent !== candlePanel) {
           defaultPanelContent.style.display = 'block';
         }
+        
+        // Ensure resize functionality still works
+        restoreResizeFunctionality();
       } else {
         // Let the button's native click handler run after we've done our cleanup
         setTimeout(() => {
           clickedButton.click();
+          // Ensure resize functionality still works
+          restoreResizeFunctionality();
         }, 0);
       }
       
@@ -317,6 +345,9 @@
       
       // Hide our panel
       hideCandlePanel();
+      
+      // Ensure resize functionality is restored
+      restoreResizeFunctionality();
     }
     
     // Notify frame of visibility change
@@ -326,11 +357,71 @@
   }
 
   /**
+   * Restore the resize functionality of the panel
+   */
+  function restoreResizeFunctionality() {
+    // Target the widget bar element
+    const widgetBar = document.querySelector(SELECTORS.widgetBar);
+    const resizeHandle = document.querySelector(SELECTORS.resizeHandle);
+    
+    if (widgetBar && originalPanelStyle) {
+      // Re-apply original styles to ensure resize functionality works
+      if (originalPanelStyle.width) {
+        widgetBar.style.width = originalPanelStyle.width;
+      }
+      if (originalPanelStyle.minWidth) {
+        widgetBar.style.minWidth = originalPanelStyle.minWidth;
+      }
+      if (originalPanelStyle.maxWidth) {
+        widgetBar.style.maxWidth = originalPanelStyle.maxWidth;
+      }
+      
+      // Ensure all original classes are present
+      if (originalPanelStyle.classList) {
+        originalPanelStyle.classList.forEach(cls => {
+          if (!widgetBar.classList.contains(cls)) {
+            widgetBar.classList.add(cls);
+          }
+        });
+      }
+    }
+    
+    // Ensure the resize handle is visible and working
+    if (resizeHandle) {
+      resizeHandle.style.display = 'block';
+      resizeHandle.style.pointerEvents = 'auto';
+      
+      // Force a small DOM change to trigger any internal handlers
+      setTimeout(() => {
+        const currentDisplay = resizeHandle.style.display;
+        resizeHandle.style.display = 'none';
+        // Force reflow
+        void resizeHandle.offsetWidth;
+        resizeHandle.style.display = currentDisplay;
+      }, 50);
+    }
+    
+    // Sometimes TradingView initializes resize handlers on hover
+    // Simulate a mouseover on the handle to ensure it's activated
+    if (resizeHandle) {
+      const mouseoverEvent = new MouseEvent('mouseover', {
+        bubbles: true,
+        cancelable: true,
+        view: window
+      });
+      resizeHandle.dispatchEvent(mouseoverEvent);
+    }
+  }
+
+  /**
    * Show the Candle panel and hide other panels
    */
   function showCandlePanel() {
     // Find the current pagescontent element (could have been updated since initialization)
     const defaultPanelContent = document.querySelector(SELECTORS.defaultPanelContent);
+    
+    // Before hiding the default content, capture its current state again
+    storeOriginalPanelState();
     
     // Hide the default TradingView panel content if it exists
     if (defaultPanelContent && defaultPanelContent !== candlePanel) {
@@ -373,11 +464,15 @@
           // We'll re-click it to ensure the panel is shown
           setTimeout(() => {
             activeButton.click();
+            // Make sure resize functionality is working
+            restoreResizeFunctionality();
           }, 0);
         } else if (previousActiveButton) {
           // Use the previously active button
           setTimeout(() => {
             previousActiveButton.click();
+            // Make sure resize functionality is working
+            restoreResizeFunctionality();
           }, 0);
         } else {
           // If no active button, create a temporary default content
@@ -385,6 +480,9 @@
           tempContent.classList.add('widgetbar-pagescontent');
           tempContent.style.display = 'block';
           panelContainer.appendChild(tempContent);
+          
+          // Make sure resize functionality is working
+          restoreResizeFunctionality();
         }
       }
     }
