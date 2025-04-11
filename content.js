@@ -1,24 +1,21 @@
 /**
  * Candle - Chrome Extension Content Script
- * This script injects a sidebar iframe with the Candle Next.js app into TradingView
- * and handles bidirectional communication between the app and TradingView.
+ * This script injects a button into TradingView's sidebar tab bar and loads
+ * the Candle Next.js app iframe when the button is clicked.
  */
 
 (function() {
   'use strict';
 
-
   // Configuration
   const CONFIG_PROD = {
     APP_URL: 'https://candle-app-delta.vercel.app',  // Replace with your Next.js app URL
-    SIDEBAR_WIDTH: 380,                // Default sidebar width in pixels
     STORAGE_KEY: 'candle_sidebar_state',
     ALLOWED_ORIGINS: ['https://candle-app-delta.vercel.app']
   };
 
   const CONFIG_DEV = {
     APP_URL: 'http://localhost:3000',  // Replace with your Next.js app URL
-    SIDEBAR_WIDTH: 380,                // Default sidebar width in pixels
     STORAGE_KEY: 'candle_sidebar_state',
     ALLOWED_ORIGINS: ['http://localhost:3000']
   };
@@ -26,26 +23,29 @@
   const CONFIG = CONFIG_DEV;
 
   // State
-  let isSidebarVisible = true;
-  let sidebarWidth = CONFIG.SIDEBAR_WIDTH;
-  let resizing = false;
-  let sidebarFrame = null;
+  let isActive = false;
   let isConnected = false;
   let lastRequestId = 0;
   let pendingResponses = {};
-
-  // DOM Elements
-  let sidebar = null;
-  let toggle = null;
-  let resizeHandle = null;
-
+  let candleButton = null;
+  let sidebarFrame = null;
+  let candlePanel = null;
+  let originalPanelContent = null;
+  let previousActiveButton = null; // Store the previously active button
   
+  // DOM selectors
+  const SELECTORS = {
+    tabBar: '.widgetbar-tabs .toolbar-S4V6IoxY',
+    panelContainer: '.widgetbar-pages',
+    button: '.button-I_wb5FjE.apply-common-tooltip.common-tooltip-vertical.accessible-I_wb5FjE',
+    defaultPanelContent: '.widgetbar-pagescontent',
+    activeButtonClass: 'isActive-I_wb5FjE'
+  };
 
   /**
    * Initialize the extension
    */
   function initialize() {
-    
     // Only run on TradingView
     if (!isTradingViewPage()) {
       return;
@@ -53,14 +53,40 @@
 
     console.log('Candle extension initializing...');
 
-    // Set up interface
-    setupInterface();
+    // Wait for TradingView UI to fully load
+    waitForElement(SELECTORS.tabBar).then(() => {
+      // Set up interface
+      setupInterface();
 
-    // Listen for messages from the iframe
-    window.addEventListener('message', handleFrameMessage, false);
-    console.log('Candle initialized.');
+      // Listen for messages from the iframe
+      window.addEventListener('message', handleFrameMessage, false);
+      console.log('Candle initialized.');
+    });
+  }
 
-    
+  /**
+   * Wait for an element to be available in the DOM
+   * @param {string} selector - CSS selector for the element
+   * @returns {Promise} - Resolves when the element is found
+   */
+  function waitForElement(selector) {
+    return new Promise(resolve => {
+      if (document.querySelector(selector)) {
+        return resolve(document.querySelector(selector));
+      }
+
+      const observer = new MutationObserver(mutations => {
+        if (document.querySelector(selector)) {
+          resolve(document.querySelector(selector));
+          observer.disconnect();
+        }
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    });
   }
 
   /**
@@ -71,70 +97,169 @@
   }
 
   /**
-   * Set up the sidebar interface
+   * Set up the interface by adding a button to TradingView's tab bar
    */
   function setupInterface() {
-    // Load saved state
-    loadSidebarState();
+    // Find and store reference to the original panel content
+    originalPanelContent = document.querySelector(SELECTORS.defaultPanelContent);
     
-    // Create sidebar container
-    sidebar = document.createElement('div');
-    sidebar.id = 'candle-sidebar';
-    Object.assign(sidebar.style, {
-      position: 'fixed',
-      top: '0',
-      right: '0',
-      width: sidebarWidth + 'px',
-      height: '100%',
-      zIndex: '9999',
-      backgroundColor: '#1e1e2d',
-      boxShadow: '-2px 0 10px rgba(0, 0, 0, 0.5)',
-      transition: 'transform 0.3s ease',
-      transform: isSidebarVisible ? 'translateX(0)' : 'translateX(100%)'
-    });
-    document.body.appendChild(sidebar);
-
-    // Create resize handle
-    resizeHandle = document.createElement('div');
-    resizeHandle.id = 'candle-resize-handle';
-    Object.assign(resizeHandle.style, {
-      position: 'absolute',
-      top: '0',
-      left: '0',
-      width: '5px',
-      height: '100%',
-      cursor: 'ew-resize',
-      zIndex: '10000'
-    });
-    sidebar.appendChild(resizeHandle);
-
-    // Create toggle button
-    toggle = document.createElement('button');
-    toggle.id = 'candle-toggle';
-    toggle.textContent = isSidebarVisible ? '›' : '‹';
-    Object.assign(toggle.style, {
-      position: 'fixed',
-      top: '50%',
-      right: isSidebarVisible ? (sidebarWidth - 1) + 'px' : '0',
-      transform: 'translateY(-50%)',
-      zIndex: '10001',
-      backgroundColor: '#2962ff',
-      color: 'white',
-      border: 'none',
-      borderRadius: '4px 0 0 4px',
-      padding: '10px 5px',
-      fontSize: '18px',
-      cursor: 'pointer',
-      boxShadow: '-2px 0 5px rgba(0, 0, 0, 0.3)',
-      transition: 'right 0.3s ease'
-    });
-    document.body.appendChild(toggle);
-
-    // Create and load iframe
+    // Create our panel that will contain the iframe
+    createCandlePanel();
+    
+    // Create and add our button to the tab bar
+    createCandleButton();
+    
+    // Create the iframe inside our panel
     createIframe();
     
-    // Set up event handlers
-    setupEventHandlers();
+    // Add event listeners to other buttons in the tab bar
+    addTabBarButtonListeners();
+    
+    // Also keep the mutation observer as a fallback
+    observePanelContainer();
+  }
+
+  /**
+   * Create the Candle panel that will contain our iframe
+   */
+  function createCandlePanel() {
+    candlePanel = document.createElement('div');
+    candlePanel.id = 'candle-panel';
+    candlePanel.classList.add('widgetbar-pagescontent'); // Add the same class for consistency
+    candlePanel.style.width = '100%';
+    candlePanel.style.height = '100%';
+    candlePanel.style.display = 'none'; // Initially hidden
+    
+    // Wait for panel container to be available
+    waitForElement(SELECTORS.panelContainer).then(panelContainer => {
+      panelContainer.appendChild(candlePanel);
+    });
+  }
+
+  /**
+   * Create and add our button to TradingView's tab bar
+   */
+  function createCandleButton() {
+    const tabBar = document.querySelector(SELECTORS.tabBar);
+    if (!tabBar) {
+      console.error('Could not find TradingView tab bar');
+      return;
+    }
+
+    // Clone an existing button to match TradingView's style
+    const existingButton = document.querySelector(SELECTORS.button);
+    if (!existingButton) {
+      console.error('Could not find existing button to clone');
+      return;
+    }
+
+    candleButton = existingButton.cloneNode(true);
+    
+    // Update button properties
+    candleButton.setAttribute('data-name', 'candle');
+    candleButton.setAttribute('data-tooltip', 'Candle Assistant');
+    candleButton.setAttribute('aria-label', 'Candle Assistant');
+    
+    // Update button icon - Replace with Candle icon
+    const iconSpan = candleButton.querySelector('span[role="img"]');
+    if (iconSpan) {
+      iconSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+        <path fill="currentColor" d="M12,2C6.5,2,2,6.5,2,12c0,5.5,4.5,10,10,10s10-4.5,10-10C22,6.5,17.5,2,12,2z M16,16.2c0,0.6-0.5,1-1,1h-6c-0.6,0-1-0.5-1-1v-0.8c0-0.3,0.1-0.5,0.4-0.7l1.5-1c0.7-0.5,1.3-1.1,1.7-1.9c0.1-0.2,0.4-0.4,0.7-0.4h0.8c0.3,0,0.5,0.1,0.7,0.4c0.4,0.8,1,1.4,1.7,1.9l1.5,1c0.2,0.2,0.4,0.4,0.4,0.7V16.2z M14,8.5L12,7L10,8.5V10h4V8.5z"/>
+      </svg>`;
+    }
+    
+    // Add click handler
+    candleButton.addEventListener('click', toggleCandlePanel);
+    
+    // Add to tab bar
+    tabBar.appendChild(candleButton);
+  }
+
+  /**
+   * Add event listeners to other buttons in the tab bar
+   */
+  function addTabBarButtonListeners() {
+    const tabBar = document.querySelector(SELECTORS.tabBar);
+    if (!tabBar) return;
+    
+    // Get all buttons in the tab bar (excluding our button)
+    const updateButtonListeners = () => {
+      const buttons = tabBar.querySelectorAll(SELECTORS.button);
+      
+      buttons.forEach(button => {
+        // Skip our own button
+        if (button === candleButton || button.getAttribute('data-name') === 'candle') {
+          return;
+        }
+        
+        // Remove existing listener if present (to avoid duplicates)
+        button.removeEventListener('click', handleOtherButtonClick);
+        
+        // Add click listener
+        button.addEventListener('click', handleOtherButtonClick);
+      });
+    };
+    
+    // Initial setup
+    updateButtonListeners();
+    
+    // Also observe the tab bar for new buttons being added
+    const observer = new MutationObserver(() => {
+      updateButtonListeners();
+    });
+    
+    observer.observe(tabBar, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  /**
+   * Handle click on other buttons in the tab bar
+   * @param {Event} event - The click event
+   */
+  function handleOtherButtonClick(event) {
+    // If our panel is currently active, deactivate it
+    if (isActive) {
+      event.stopPropagation(); // Prevent TradingView's handler from running
+      event.preventDefault();
+      
+      isActive = false;
+      
+      // Remove active class from our button
+      candleButton.classList.remove(SELECTORS.activeButtonClass);
+      candleButton.setAttribute('aria-pressed', 'false');
+      
+      // Add active class to the clicked button
+      const clickedButton = event.currentTarget;
+      clickedButton.classList.add(SELECTORS.activeButtonClass);
+      
+      // Hide our panel and show the appropriate panel
+      hideCandlePanel();
+      
+      // If this is the previously active button, restore its state
+      if (previousActiveButton === clickedButton) {
+        // Re-apply active state to the previously active button
+        previousActiveButton.classList.add(SELECTORS.activeButtonClass);
+        previousActiveButton.setAttribute('aria-pressed', 'true');
+        
+        // Make sure its panel is shown
+        const defaultPanelContent = document.querySelector(SELECTORS.defaultPanelContent);
+        if (defaultPanelContent && defaultPanelContent !== candlePanel) {
+          defaultPanelContent.style.display = 'block';
+        }
+      } else {
+        // Let the button's native click handler run after we've done our cleanup
+        setTimeout(() => {
+          clickedButton.click();
+        }, 0);
+      }
+      
+      // Notify frame of visibility change
+      if (isConnected) {
+        sendRequest({ route: 'visibility-changed', data: { visible: false } });
+      }
+    }
   }
 
   /**
@@ -151,108 +276,162 @@
       backgroundColor: '#1e1e2d'
     });
     
-    sidebar.appendChild(sidebarFrame);
+    candlePanel.appendChild(sidebarFrame);
   }
 
   /**
-   * Set up event handlers for the sidebar
+   * Toggle the Candle panel's visibility
    */
-  function setupEventHandlers() {
-    // Toggle sidebar visibility
-    toggle.addEventListener('click', toggleSidebar);
-
-    // Handle resize
-    resizeHandle.addEventListener('mousedown', startResize);
-    document.addEventListener('mousemove', handleResize);
-    document.addEventListener('mouseup', stopResize);
-
-    // Save state on unload
-    window.addEventListener('beforeunload', saveSidebarState);
-  }
-
-  /**
-   * Toggle sidebar visibility
-   */
-  function toggleSidebar() {
-    isSidebarVisible = !isSidebarVisible;
+  function toggleCandlePanel() {
+    // Check if our panel is currently active
+    isActive = !isActive;
     
-    sidebar.style.transform = isSidebarVisible ? 'translateX(0)' : 'translateX(100%)';
-    toggle.style.right = isSidebarVisible ? (sidebarWidth - 1) + 'px' : '0';
-    toggle.textContent = isSidebarVisible ? '›' : '‹';
+    // Update button state
+    candleButton.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     
-    saveSidebarState();
+    if (isActive) {
+      // Find the currently active button and remember it
+      const activeButton = document.querySelector(`.${SELECTORS.activeButtonClass}`);
+      if (activeButton && activeButton !== candleButton) {
+        previousActiveButton = activeButton;
+        
+        // Remove active class from the previously active button
+        activeButton.classList.remove(SELECTORS.activeButtonClass);
+        activeButton.setAttribute('aria-pressed', 'false');
+      }
+      
+      // Add active class to our button
+      candleButton.classList.add(SELECTORS.activeButtonClass);
+      
+      // Show our panel and hide others
+      showCandlePanel();
+    } else {
+      // Remove active class from our button
+      candleButton.classList.remove(SELECTORS.activeButtonClass);
+      
+      // Restore active class to the previously active button if there was one
+      if (previousActiveButton) {
+        previousActiveButton.classList.add(SELECTORS.activeButtonClass);
+        previousActiveButton.setAttribute('aria-pressed', 'true');
+      }
+      
+      // Hide our panel
+      hideCandlePanel();
+    }
     
     // Notify frame of visibility change
-    if (isConnected && isSidebarVisible) {
+    if (isConnected && isActive) {
       sendRequest({ route: 'visibility-changed', data: { visible: true } });
     }
   }
 
   /**
-   * Start resize operation
+   * Show the Candle panel and hide other panels
    */
-  function startResize(e) {
-    resizing = true;
-    e.preventDefault();
-  }
-
-  /**
-   * Handle resize movement
-   */
-  function handleResize(e) {
-    if (!resizing) return;
+  function showCandlePanel() {
+    // Find the current pagescontent element (could have been updated since initialization)
+    const defaultPanelContent = document.querySelector(SELECTORS.defaultPanelContent);
     
-    const newWidth = window.innerWidth - e.clientX;
+    // Hide the default TradingView panel content if it exists
+    if (defaultPanelContent && defaultPanelContent !== candlePanel) {
+      defaultPanelContent.style.display = 'none';
+    }
     
-    // Limit minimum and maximum size
-    if (newWidth >= 300 && newWidth <= 600) {
-      sidebarWidth = newWidth;
-      sidebar.style.width = sidebarWidth + 'px';
-      toggle.style.right = isSidebarVisible ? (sidebarWidth - 1) + 'px' : '0';
+    // Show our panel
+    candlePanel.style.display = 'block';
+    
+    // Make sure any other children in the panel container are hidden
+    const panelContainer = document.querySelector(SELECTORS.panelContainer);
+    if (panelContainer) {
+      Array.from(panelContainer.children).forEach(child => {
+        if (child !== candlePanel && !child.classList.contains('widgetbar-pagescontent')) {
+          child.style.display = 'none';
+        }
+      });
     }
   }
 
   /**
-   * End resize operation
+   * Hide the Candle panel
    */
-  function stopResize() {
-    if (resizing) {
-      resizing = false;
-      saveSidebarState();
-    }
-  }
-
-  /**
-   * Save sidebar state to localStorage
-   */
-  function saveSidebarState() {
-    const state = {
-      visible: isSidebarVisible,
-      width: sidebarWidth
-    };
+  function hideCandlePanel() {
+    // Hide our panel
+    candlePanel.style.display = 'none';
     
-    try {
-      localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {
-      console.error('Failed to save sidebar state:', e);
-    }
-  }
-
-  /**
-   * Load sidebar state from localStorage
-   */
-  function loadSidebarState() {
-    try {
-      const savedState = localStorage.getItem(CONFIG.STORAGE_KEY);
-      
-      if (savedState) {
-        const state = JSON.parse(savedState);
-        isSidebarVisible = state.visible;
-        sidebarWidth = state.width || CONFIG.SIDEBAR_WIDTH;
+    // Restore default panel content
+    const defaultPanelContent = document.querySelector(SELECTORS.defaultPanelContent);
+    if (defaultPanelContent && defaultPanelContent !== candlePanel) {
+      defaultPanelContent.style.display = 'block';
+    } else {
+      // If we can't find the default content, try to find any other panel that should be visible
+      const panelContainer = document.querySelector(SELECTORS.panelContainer);
+      if (panelContainer) {
+        // Check if there is an active button
+        const activeButton = document.querySelector(SELECTORS.button + '.' + SELECTORS.activeButtonClass);
+        if (activeButton && activeButton !== candleButton) {
+          // There's an active button, so there should be a corresponding panel
+          // We'll re-click it to ensure the panel is shown
+          setTimeout(() => {
+            activeButton.click();
+          }, 0);
+        } else if (previousActiveButton) {
+          // Use the previously active button
+          setTimeout(() => {
+            previousActiveButton.click();
+          }, 0);
+        } else {
+          // If no active button, create a temporary default content
+          const tempContent = document.createElement('div');
+          tempContent.classList.add('widgetbar-pagescontent');
+          tempContent.style.display = 'block';
+          panelContainer.appendChild(tempContent);
+        }
       }
-    } catch (e) {
-      console.error('Failed to load sidebar state:', e);
     }
+  }
+
+  /**
+   * Observe changes to panel container to handle when other panels are shown
+   * This is kept as a fallback method
+   */
+  function observePanelContainer() {
+    const panelContainer = document.querySelector(SELECTORS.panelContainer);
+    if (!panelContainer) return;
+    
+    const observer = new MutationObserver(mutations => {
+      // Look specifically for changes to the default panel content
+      const defaultPanelContent = document.querySelector(SELECTORS.defaultPanelContent);
+      
+      // If there's a default panel visible (not our panel) and our panel is active, deactivate ours
+      if (defaultPanelContent && 
+          defaultPanelContent !== candlePanel && 
+          window.getComputedStyle(defaultPanelContent).display !== 'none' && 
+          isActive) {
+        
+        isActive = false;
+        candleButton.classList.remove(SELECTORS.activeButtonClass);
+        candleButton.setAttribute('aria-pressed', 'false');
+        
+        // Restore the previously active button if there was one
+        if (previousActiveButton) {
+          previousActiveButton.classList.add(SELECTORS.activeButtonClass);
+          previousActiveButton.setAttribute('aria-pressed', 'true');
+        }
+        
+        hideCandlePanel();
+        
+        // Notify frame of visibility change
+        if (isConnected) {
+          sendRequest({ route: 'visibility-changed', data: { visible: false } });
+        }
+      }
+    });
+    
+    observer.observe(panelContainer, {
+      childList: true,
+      subtree: true,
+      attributes: true
+    });
   }
 
   // Transport Layer
@@ -297,7 +476,7 @@
           body: 'success'
         };
       case 'set-timeframe':
-          return handleSetTimeframe(request.body);
+        return handleSetTimeframe(request.body);
       case 'add-indicator':
         return await handleAddIndicator(request.body);
       case "grab-screen":
@@ -432,11 +611,18 @@
 
     const packet = event.data;
     
+    // Connection packet
+    if (packet.type === 'connect') {
+      isConnected = true;
+      console.log('Connected to Candle app');
+      return;
+    }
+    
     // Handle response packet
     if (packet.type === 'response') {
       const { requestId, data } = packet;
       if (pendingResponses[requestId]) {
-        const { resolve } = pendingResponses[requestId];
+        const { resolve, reject } = pendingResponses[requestId];
         const { success, error, body } = data;
         if (success) {
           resolve(body);

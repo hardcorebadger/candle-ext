@@ -358,4 +358,75 @@ body.candle-resizing * {
   padding: 8px 12px;
   margin: 8px 0;
   border-radius: 0 4px 4px 0;
+}
+
+/* CSS styles for Candle extension integrated into TradingView */
+
+/* Panel styles */
+#candle-panel {
+  width: 100%;
+  height: 100%;
+  background-color: #1e1e2e;
+  color: #cdd6f4;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* Ensure our iframe takes full width and height */
+#candle-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background-color: #1e1e2e;
+}
+
+/* Custom styling for our button */
+[data-name="candle"] svg {
+  color: #f59e0b;
+}
+
+/* Active state for our button */
+[data-name="candle"][aria-pressed="true"] {
+  background-color: rgba(245, 158, 11, 0.15);
+}
+
+/* Hover state for our button */
+[data-name="candle"]:hover:not([aria-pressed="true"]) {
+  background-color: rgba(245, 158, 11, 0.1);
+}
+
+/* Message styling for the iframe content */
+.candle-message {
+  display: flex;
+  margin-bottom: 15px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Loading indicator */
+.candle-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+}
+
+.candle-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #313244;
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 } 
