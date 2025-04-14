@@ -579,6 +579,8 @@
         return await handleAddIndicator(request.body);
       case "grab-screen":
         return await handleGrabScreen(request.body);
+      case "draw-figure":
+        return await handleDrawFigure(request.body);
       
       default:
         return {
@@ -822,6 +824,234 @@
       return {
         success: false,
         error: error.message || 'Failed to capture screenshot'
+      };
+    }
+  }
+
+  async function handleDrawFigure(body) {
+    console.log('[content.js] Drawing figure:', body);
+
+    try {
+      // The drawing process is as follows:
+      // 1. double click the right drawing tool (for trendline and level its the first one, for fib retracement its the second one)
+      // 2. select the correct drawing from the dialog
+      // 3. unload the points array, clicking on the chart at each point
+      // - each point has a price and a time
+      // - the price is the y coordinate and the time is the x coordinate
+      // - the points are in the format [{price, time}, ...]
+      // - we need to figure out x,y screen coordinates for each point
+      // - luckily, we have this data in the body
+      // chartBounds: z.object({
+      //   startTime: z.string().regex(/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/).describe('The leftmost bound of the currently visible chart in YYYY-MM-DD HH:mm:ss format, time is optional'),
+      //   endTime: z.string().regex(/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/).describe('The rightmost bound of the currently visible chart in YYYY-MM-DD HH:mm:ss format, time is optional'),
+      //   startPrice: z.number().describe('The lowest price on the chart'),
+      //   endPrice: z.number().describe('The highest price on the chart')
+      // }).describe('The bounds of the currently visible chart, this is used to convert the relative coordinates of the points to absolute coordinates. Your job is to describe the chart you see, not the chart you want to see.'),
+      // - we need to convert the points to absolute coordinates using chartBounds and the chart's current screen coordinates
+      // - get the chart's current screen coordinates
+      // - get the time,price of the point
+      // - remap the time,price to the chart's screen coordinates using chartBounds
+      // - then click on the chart at the absolute coordinates
+      // 4. hit escape to stop drawing
+
+      // full implementation:
+
+      const chartSelector = "canvas[data-name='pane-top-canvas']";
+      const drawingToolbarSelector = '.drawingToolbar-BfVZxb4b';
+      const drawingToolButtonSelector = 'button.button-KTgbfaP5';
+      const drawingToolDialogSelector = '.menuWrap-Kq3ruQo8';
+      const drawingToolDialogItemSelector = 'div[data-role="menuitem"]';
+
+      function getChartScreenBounds() {
+        const chart = document.querySelector(chartSelector);
+        if (!chart) {
+          console.error(`[handleDrawFigure] Chart element not found with selector: ${chartSelector}`);
+          throw new Error(`Chart element not found: ${chartSelector}`);
+        }
+        const bounds = chart.getBoundingClientRect();
+        return { startX: bounds.left, startY: bounds.top, endX: bounds.right, endY: bounds.bottom };
+      }
+
+      function getChartTimePriceBounds() {
+        const chartBounds = body.chartBounds;
+        if (!chartBounds || typeof chartBounds.startTime === 'undefined' || typeof chartBounds.endTime === 'undefined' || typeof chartBounds.startPrice === 'undefined' || typeof chartBounds.endPrice === 'undefined') {
+           console.error('[handleDrawFigure] Invalid chartBounds received:', chartBounds);
+           throw new Error('Invalid chartBounds received');
+        }
+        const timeRegex = /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/;
+        if (!timeRegex.test(chartBounds.startTime) || !timeRegex.test(chartBounds.endTime)) {
+          console.error('[handleDrawFigure] Invalid time format in chartBounds:', chartBounds);
+          throw new Error('Invalid time format in chartBounds');
+        }
+        const startTimeMs = new Date(chartBounds.startTime).getTime();
+        const endTimeMs = new Date(chartBounds.endTime).getTime();
+
+        if (isNaN(startTimeMs) || isNaN(endTimeMs)) {
+          console.error('[handleDrawFigure] Could not parse time strings in chartBounds:', chartBounds);
+          throw new Error('Could not parse time strings in chartBounds');
+        }
+
+        return {
+          startX: startTimeMs,
+          endX: endTimeMs,
+          startY: chartBounds.startPrice,
+          endY: chartBounds.endPrice
+        }
+      }
+
+      function getScreenCoordinates(time, price) {
+        const chartScreenBounds = getChartScreenBounds();
+        const chartTimePriceBounds = getChartTimePriceBounds();
+
+        const timeMs = new Date(time).getTime();
+         if (isNaN(timeMs)) {
+          console.error(`[handleDrawFigure] Could not parse input time string: ${time}`);
+          throw new Error(`Could not parse input time string: ${time}`);
+        }
+
+        const timeRange = chartTimePriceBounds.endX - chartTimePriceBounds.startX;
+        const priceRange = chartTimePriceBounds.endY - chartTimePriceBounds.startY;
+        const screenXRange = chartScreenBounds.endX - chartScreenBounds.startX;
+        const screenYRange = chartScreenBounds.endY - chartScreenBounds.startY;
+
+        if (timeRange === 0 || priceRange === 0) {
+          console.error('[handleDrawFigure] Cannot calculate coordinates: Time or price range is zero.', { chartTimePriceBounds });
+          throw new Error('Time or price range is zero in chart bounds');
+        }
+
+        const timeRatio = Math.max(0, Math.min(1, (timeMs - chartTimePriceBounds.startX) / timeRange));
+        const priceRatio = Math.max(0, Math.min(1, (price - chartTimePriceBounds.startY) / priceRange));
+
+        const screenX = chartScreenBounds.startX + timeRatio * screenXRange;
+        const screenY = chartScreenBounds.endY - priceRatio * screenYRange;
+
+        return { x: screenX, y: screenY };
+      }
+
+      function selectChart() {
+        const charts = document.querySelectorAll(chartSelector);
+        const chart = Array.from(charts).find(chart => chart.getAttribute('aria-label')?.includes('Chart'));
+        if (!chart) {
+          console.error(`[handleDrawFigure] Chart element not found: ${chartSelector}`);
+          throw new Error(`Chart element not found: ${chartSelector}`);
+        }
+        return chart;
+      }
+
+      async function clickChartAtCoordinates(x, y) {
+        const chart = selectChart()
+        if (!chart) {
+           console.error(`[handleDrawFigure] Chart element not found during click: ${chartSelector}`);
+           throw new Error(`Chart element not found during click: ${chartSelector}`);
+        }
+
+        chart.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true,
+            clientX: x,
+            clientY: y
+        }))
+        await wait(100);
+        chart.dispatchEvent(new MouseEvent('mouseup', {
+            bubbles: true,
+            clientX: x,
+            clientY: y
+        }))
+      }
+
+      function clickDrawingToolbar(index) {
+        const drawingToolbar = document.querySelector(drawingToolbarSelector);
+         if (!drawingToolbar) {
+            console.error(`[handleDrawFigure] Drawing toolbar not found: ${drawingToolbarSelector}`);
+            throw new Error(`Drawing toolbar not found: ${drawingToolbarSelector}`);
+         }
+        const drawingToolButtons = drawingToolbar.querySelectorAll(drawingToolButtonSelector);
+        if (!drawingToolButtons || drawingToolButtons.length <= index) {
+          console.error(`[handleDrawFigure] Drawing tool button not found at index ${index} in toolbar: ${drawingToolbarSelector}`);
+          throw new Error(`Drawing tool button not found at index ${index}`);
+        }
+        drawingToolButtons[index].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      }
+
+      async function openDrawingTool(index) {
+        clickDrawingToolbar(index);
+        await wait(100);
+        clickDrawingToolbar(index);
+      }
+
+      function clickDrawingToolDialogItem(index) {
+        const drawingToolDialog = document.querySelector(drawingToolDialogSelector);
+        if (!drawingToolDialog) {
+           console.error(`[handleDrawFigure] Drawing tool dialog not found: ${drawingToolDialogSelector}`);
+           throw new Error(`Drawing tool dialog not found: ${drawingToolDialogSelector}`);
+        }
+        const drawingToolDialogItems = drawingToolDialog.querySelectorAll(drawingToolDialogItemSelector);
+        if (!drawingToolDialogItems || drawingToolDialogItems.length <= index) {
+           console.error(`[handleDrawFigure] Drawing tool dialog item not found at index ${index} in dialog: ${drawingToolDialogSelector}`);
+           throw new Error(`Drawing tool dialog item not found at index ${index}`);
+        }
+        drawingToolDialogItems[index].click();
+      }
+
+      async function wait(milliseconds) {
+        await new Promise(resolve => setTimeout(resolve, milliseconds));
+        return;
+      }
+
+      async function drawPoints(points) {
+        if (!points || !Array.isArray(points)) {
+           console.error('[handleDrawFigure] Invalid points array received:', points);
+           throw new Error('Invalid points array received');
+        }
+        console.log('[handleDrawFigure] Drawing points:', points);
+        for (const [i, point] of points.entries()) {
+          if (typeof point.time === 'undefined' || typeof point.price === 'undefined') {
+             console.error(`[handleDrawFigure] Invalid point data at index ${i}:`, point);
+             throw new Error(`Invalid point data at index ${i}`);
+          }
+          const { x, y } = getScreenCoordinates(point.time, point.price);
+          await clickChartAtCoordinates(x, y);
+          await wait(250);
+        }
+      }
+
+      async function selectDrawing(toolbarIndex, dialogIndex) {
+        await openDrawingTool(toolbarIndex);
+        await wait(500);
+        clickDrawingToolDialogItem(dialogIndex);
+      }
+
+      // main logic
+      switch (body.figure) {
+        case 'level':
+          await selectDrawing(1, 5);
+          break;
+        case 'trendline':
+          await selectDrawing(1, 0);
+          break;
+        case 'fibonacci':
+          await selectDrawing(2, 0);
+          break;
+        case 'parallel-channel':
+          await selectDrawing(1, 9);
+          break;
+        default:
+          console.error(`[handleDrawFigure] Unknown figure type: ${body.figure}`);
+          throw new Error(`Unknown figure type: ${body.figure}`);
+      }
+
+      await wait(500);
+      await drawPoints(body.points);
+
+      return {
+        success: true,
+        body: {}
+      };
+
+    } catch (error) {
+      console.error('[handleDrawFigure] Error during drawing process:', error);
+      return {
+        success: false,
+        error: error.message || 'An unknown error occurred during drawing.'
       };
     }
   }
