@@ -58,12 +58,12 @@
 
     // Wait for TradingView UI to fully load
     waitForElement(SELECTORS.tabBar).then(() => {
-      // Set up interface
-      setupInterface();
+    // Set up interface
+    setupInterface();
 
-      // Listen for messages from the iframe
-      window.addEventListener('message', handleFrameMessage, false);
-      console.log('Candle initialized.');
+    // Listen for messages from the iframe
+    window.addEventListener('message', handleFrameMessage, false);
+    console.log('Candle initialized.');
     });
   }
 
@@ -574,7 +574,7 @@
           body: 'success'
         };
       case 'set-timeframe':
-        return handleSetTimeframe(request.body);
+          return handleSetTimeframe(request.body);
       case 'add-indicator':
         return await handleAddIndicator(request.body);
       case "grab-screen":
@@ -640,14 +640,22 @@
 
     await new Promise(resolve => setTimeout(resolve, 1000));
 
+    const indicatorDisplayName = {
+      "RSI": "Relative Strength Index",
+      "MACD": "Moving Average Convergence Divergence",
+      "VWOP": "Volume Weighted & Oscillated Price",
+      "SMA": "Moving Average Simple",
+      "EMA": "Moving Average Exponential",
+    }
+
     // find the divs with class ".container-WeNdU0sq"
     const containers = document.querySelectorAll('.container-WeNdU0sq');
     // console.log('Container count:', containers.length);
-    const rsiContainer = Array.from(containers).find(container => container.textContent === "Relative Strength Index");
+    const rsiContainer = Array.from(containers).find(container => container.textContent === indicatorDisplayName[body.indicator]);
     if (!rsiContainer) {
       return {
         success: false,
-        error: new Error('Relative Strength Index container not found')
+        error: new Error(indicatorDisplayName[body.indicator] + ' container not found')
       }
     }
     rsiContainer.click();
@@ -655,6 +663,126 @@
     // hit the close button on the dialog. find the button with class ".close-BZKENkhT"
     const closeButton = document.querySelector('.close-BZKENkhT');
     closeButton.click();
+
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // find the indicator in the chart 
+    // within .sourcesWrapper-l31H9iuA find a .item-l31H9iuA where the child .titlesWrapper-l31H9iuA inner text is "RSI", add  .selected-l31 to the item then find a child .buttons-l31H9iuA  where data-name="legend-settings-action" and click it
+    const indicators = document.querySelectorAll('.sourcesWrapper-l31H9iuA .item-l31H9iuA');
+    console.log('Indicator count:', indicators.length);
+    let indicator = null;
+    Array.from(indicators).forEach((el, index) => {
+      console.log(`Indicator ${index} text:`, el.textContent);
+      const title = el.querySelector('.titlesWrapper-l31H9iuA');
+      if (!title) {
+        return; // Use return instead of continue since we're in a forEach
+      }
+      console.log(`Indicator ${index} title text:`, title.textContent);
+      if (title.textContent.includes(body.indicator)) {
+        indicator = el;
+      }
+    });
+    if (!indicator) {
+      return {
+        success: false,
+        error: new Error(body.indicator + ' indicator not found')
+      }
+    }
+
+    
+    // mouseover the indicator
+    // indicator.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    
+
+    // the menu is .menu-Tx5xMZww and the items are .item-GJX1EXhk.normal-GJX1EXhk data-role="menuitem"
+    // find the item with text containng "Settings" to lower strip
+    // for now print the text of all items
+    // const menuItems = document.querySelectorAll('.menu-Tx5xMZww .item-GJX1EXhk.normal-GJX1EXhk');
+    // console.log('Menu items count:', menuItems.length);
+    // let settingsItem = null;
+    // menuItems.forEach(item => {
+    //   console.log('Menu item:', item.textContent);
+    //   if (item.textContent.toLowerCase().includes("settings")) {
+    //     settingsItem = item;
+    //   }
+    // });
+
+    // if (!settingsItem) {
+    //   return {
+    //     success: false,
+    //     error: new Error('Settings item not found')
+    //   }
+    // }
+
+    // settingsItem.click();
+
+    // await new Promise(resolve => setTimeout(resolve, 500));
+
+    const indicatorButtons = indicator.querySelectorAll('.buttons-l31H9iuA button');
+    console.log('Buttons count:', indicatorButtons.length);
+    let settingsButton = null;
+    Array.from(indicatorButtons).forEach(button => {
+      // console.log('Button:', button.outerHTML);
+      // console.log('Button:', button.textContent);
+      console.log('Button:', button.getAttribute('data-name'));
+      if (button.getAttribute('data-name') === "legend-settings-action") {
+        settingsButton = button;
+      }
+    });
+    // const settingsButton = indicator.querySelector('.buttons-l31H9iuA[data-name="legend-settings-action"]');
+    if (!settingsButton) {
+      return {
+        success: false,
+        error: new Error('Settings button not found')
+      }
+    }
+
+    console.log('Clicking settings button:', settingsButton.outerHTML);
+
+    settingsButton.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // adjust the settings as needed
+
+    // the dialog menu is data-name indicator-properties-dialog
+    const dialogMenu = document.querySelector('[data-name="indicator-properties-dialog"]');
+    if (!dialogMenu) {
+      return {
+        success: false,
+        error: new Error('Dialog menu not found')
+      }
+    }
+
+    console.log('Dialog menu opened');
+
+    // RSI SMA and EMA are all the same
+    switch (body.indicator) {
+      case "RSI":
+      case "SMA":
+      case "EMA":
+        // the first input is the period
+        const periodInput = dialogMenu.querySelector('input');
+        console.log('Period input:', periodInput.outerHTML);
+        if (!periodInput) {
+          return {
+            success: false,
+            error: new Error('Period input not found')
+          }
+        }
+        periodInput.value = body.periodLength;
+        periodInput.dispatchEvent(new Event('input', { bubbles: true }));
+        console.log('Period input value:', periodInput.value);
+        break;
+        
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+
+    // close the settings dialog
+    const closeButtonDialog = dialogMenu.querySelector('.close-BZKENkhT');
+    closeButtonDialog.click();
 
     return {
       success: true,
