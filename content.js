@@ -581,6 +581,8 @@
         return await handleGrabScreen(request.body);
       case "draw-figure":
         return await handleDrawFigure(request.body);
+      case "remove-features":
+        return await handleRemoveFeatures(request.body);
       
       default:
         return {
@@ -618,6 +620,8 @@
       }
     }
   }
+
+  
 
   async function handleAddIndicator(body) {
     console.log('Adding indicator:', body.indicator);
@@ -831,6 +835,10 @@
   async function handleDrawFigure(body) {
     console.log('[content.js] Drawing figure with mixed coordinates:', body);
 
+
+    const chartSelector = "canvas[data-name='pane-top-canvas']";
+
+
     try {
       // Check for required chartPriceRange
       const chartPriceRange = body.chartPriceRange;
@@ -857,11 +865,7 @@
 
       // full implementation:
 
-      const chartSelector = "canvas[data-name='pane-top-canvas']";
-      const drawingToolbarSelector = '.drawingToolbar-BfVZxb4b';
-      const drawingToolButtonSelector = 'button.button-KTgbfaP5';
-      const drawingToolDialogSelector = '.menuWrap-Kq3ruQo8';
-      const drawingToolDialogItemSelector = 'div[data-role="menuitem"]';
+      
 
       function getChartScreenBounds() {
         const chart = selectChart();
@@ -901,8 +905,8 @@
                 throw new Error('Invalid price range: topOfChart < bottomOfChart.');
             }
 
-            // Calculate 5% buffer
-            const bufferAmount = originalPriceRange * 0.05;
+            // Calculate 5% buffer - set to 0 for now
+            const bufferAmount = originalPriceRange * 0.03;
             const adjustedTopOfChart = topOfChart + bufferAmount;
             const adjustedBottomOfChart = bottomOfChart - bufferAmount;
             const adjustedPriceRange = adjustedTopOfChart - adjustedBottomOfChart; // This is originalPriceRange * 1.1
@@ -959,45 +963,6 @@
         }))
       }
 
-      function clickDrawingToolbar(index) {
-        const drawingToolbar = document.querySelector(drawingToolbarSelector);
-         if (!drawingToolbar) {
-            console.error(`[handleDrawFigure] Drawing toolbar not found: ${drawingToolbarSelector}`);
-            throw new Error(`Drawing toolbar not found: ${drawingToolbarSelector}`);
-         }
-        const drawingToolButtons = drawingToolbar.querySelectorAll(drawingToolButtonSelector);
-        if (!drawingToolButtons || drawingToolButtons.length <= index) {
-          console.error(`[handleDrawFigure] Drawing tool button not found at index ${index} in toolbar: ${drawingToolbarSelector}`);
-          throw new Error(`Drawing tool button not found at index ${index}`);
-        }
-        drawingToolButtons[index].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      }
-
-      async function openDrawingTool(index) {
-        clickDrawingToolbar(index);
-        await wait(100);
-        clickDrawingToolbar(index);
-      }
-
-      function clickDrawingToolDialogItem(index) {
-        const drawingToolDialog = document.querySelector(drawingToolDialogSelector);
-        if (!drawingToolDialog) {
-           console.error(`[handleDrawFigure] Drawing tool dialog not found: ${drawingToolDialogSelector}`);
-           throw new Error(`Drawing tool dialog not found: ${drawingToolDialogSelector}`);
-        }
-        const drawingToolDialogItems = drawingToolDialog.querySelectorAll(drawingToolDialogItemSelector);
-        if (!drawingToolDialogItems || drawingToolDialogItems.length <= index) {
-           console.error(`[handleDrawFigure] Drawing tool dialog item not found at index ${index} in dialog: ${drawingToolDialogSelector}`);
-           throw new Error(`Drawing tool dialog item not found at index ${index}`);
-        }
-        drawingToolDialogItems[index].click();
-      }
-
-      async function wait(milliseconds) {
-        await new Promise(resolve => setTimeout(resolve, milliseconds));
-        return;
-      }
-
       // Updated to use point.x and point.y for percentages
       async function drawPoints(points, chartPriceRange) {
         if (!points || !Array.isArray(points)) {
@@ -1020,9 +985,9 @@
       }
 
       async function selectDrawing(toolbarIndex, dialogIndex) {
-        await openDrawingTool(toolbarIndex);
+        await doubleClickLeftToolbar(toolbarIndex);
         await wait(500);
-        clickDrawingToolDialogItem(dialogIndex);
+        clickLeftToolDialogItem(dialogIndex);
       }
 
       // main logic
@@ -1060,6 +1025,88 @@
         error: error.message || 'An unknown error occurred during drawing.'
       };
     }
+  }
+
+  async function handleRemoveFeatures(body) {
+    console.log('[content.js] Removing features:', body);
+
+    try {
+
+      clickLeftToolbar(14)
+      await wait(500)
+      
+    switch (body.remove) {
+      case 'drawings':
+        clickLeftToolDialogItem(0)
+        break;
+      case 'indicators':
+        clickLeftToolDialogItem(1)
+        break;
+      case 'all':
+        clickLeftToolDialogItem(2)
+        break;
+      default:
+        console.error(`[handleRemoveFeatures] Unknown remove option: ${body.remove}`);
+        throw new Error(`Unknown remove option: ${body.remove}`);
+        }
+
+      return {
+        success: true,
+        body: {}
+      };
+    } catch (error) {
+      console.error('[handleRemoveFeatures] Error during removal process:', error);
+      return {
+        success: false,
+        error: error.message || 'An unknown error occurred during removal.'
+      };
+    }
+  }
+
+  // Helpers
+
+  const leftToolbarSelector = '.drawingToolbar-BfVZxb4b';
+  const leftToolButtonSelector = 'button.button-KTgbfaP5';
+  const leftToolDialogSelector = '.menuWrap-Kq3ruQo8';
+  const leftToolDialogItemSelector = 'div[data-role="menuitem"]';
+
+  function clickLeftToolbar(index) {
+    const drawingToolbar = document.querySelector(leftToolbarSelector);
+     if (!drawingToolbar) {
+        console.error(`[handleDrawFigure] Drawing toolbar not found: ${leftToolbarSelector}`);
+        throw new Error(`Drawing toolbar not found: ${leftToolbarSelector}`);
+     }
+    const drawingToolButtons = drawingToolbar.querySelectorAll(leftToolButtonSelector);
+    if (!drawingToolButtons || drawingToolButtons.length <= index) {
+      console.error(`[handleDrawFigure] Drawing tool button not found at index ${index} in toolbar: ${drawingToolbarSelector}`);
+      throw new Error(`Drawing tool button not found at index ${index}`);
+    }
+    drawingToolButtons[index].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  }
+
+  async function doubleClickLeftToolbar(index) {
+    clickLeftToolbar(index);
+    await wait(100);
+    clickLeftToolbar(index);
+  }
+
+  function clickLeftToolDialogItem(index) {
+    const drawingToolDialog = document.querySelector(leftToolDialogSelector);
+    if (!drawingToolDialog) {
+       console.error(`[handleDrawFigure] Drawing tool dialog not found: ${leftToolDialogSelector}`);
+       throw new Error(`Drawing tool dialog not found: ${leftToolDialogSelector}`);
+    }
+    const drawingToolDialogItems = drawingToolDialog.querySelectorAll(leftToolDialogItemSelector);
+    if (!drawingToolDialogItems || drawingToolDialogItems.length <= index) {
+       console.error(`[handleDrawFigure] Drawing tool dialog item not found at index ${index} in dialog: ${drawingToolDialogSelector}`);
+       throw new Error(`Drawing tool dialog item not found at index ${index}`);
+    }
+    drawingToolDialogItems[index].click();
+  }
+
+  async function wait(milliseconds) {
+    await new Promise(resolve => setTimeout(resolve, milliseconds));
+    return;
   }
 
   /**
