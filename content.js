@@ -829,30 +829,19 @@
   }
 
   async function handleDrawFigure(body) {
-    console.log('[content.js] Drawing figure:', body);
+    console.log('[content.js] Drawing figure with percentage coordinates:', body);
 
     try {
       // The drawing process is as follows:
-      // 1. double click the right drawing tool (for trendline and level its the first one, for fib retracement its the second one)
+      // 1. double click the right drawing tool
       // 2. select the correct drawing from the dialog
-      // 3. unload the points array, clicking on the chart at each point
-      // - each point has a price and a time
-      // - the price is the y coordinate and the time is the x coordinate
-      // - the points are in the format [{price, time}, ...]
-      // - we need to figure out x,y screen coordinates for each point
-      // - luckily, we have this data in the body
-      // chartBounds: z.object({
-      //   startTime: z.string().regex(/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/).describe('The leftmost bound of the currently visible chart in YYYY-MM-DD HH:mm:ss format, time is optional'),
-      //   endTime: z.string().regex(/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/).describe('The rightmost bound of the currently visible chart in YYYY-MM-DD HH:mm:ss format, time is optional'),
-      //   startPrice: z.number().describe('The lowest price on the chart'),
-      //   endPrice: z.number().describe('The highest price on the chart')
-      // }).describe('The bounds of the currently visible chart, this is used to convert the relative coordinates of the points to absolute coordinates. Your job is to describe the chart you see, not the chart you want to see.'),
-      // - we need to convert the points to absolute coordinates using chartBounds and the chart's current screen coordinates
-      // - get the chart's current screen coordinates
-      // - get the time,price of the point
-      // - remap the time,price to the chart's screen coordinates using chartBounds
-      // - then click on the chart at the absolute coordinates
-      // 4. hit escape to stop drawing
+      // 3. iterate through points array, clicking on the chart at each point
+      // - each point has x and y (0-100)
+      // - we need to figure out absolute x,y screen coordinates for each point
+      // - get the chart's current screen bounds
+      // - calculate absolute coordinates based on percentage and bounds
+      // - click on the chart at the calculated absolute coordinates
+      // 4. hit escape to stop drawing (TODO)
 
       // full implementation:
 
@@ -863,96 +852,65 @@
       const drawingToolDialogItemSelector = 'div[data-role="menuitem"]';
 
       function getChartScreenBounds() {
-        const chart = document.querySelector(chartSelector);
+        const chart = selectChart(); // Use selectChart to get the correct canvas
         if (!chart) {
-          console.error(`[handleDrawFigure] Chart element not found with selector: ${chartSelector}`);
-          throw new Error(`Chart element not found: ${chartSelector}`);
+          // selectChart already throws an error, but double-check
+          console.error(`[handleDrawFigure] Chart element not found when getting bounds.`);
+          throw new Error(`Chart element not found when getting bounds.`);
         }
         const bounds = chart.getBoundingClientRect();
-        return { startX: bounds.left, startY: bounds.top, endX: bounds.right, endY: bounds.bottom };
+        return { startX: bounds.left, startY: bounds.top, endX: bounds.right, endY: bounds.bottom, width: bounds.width, height: bounds.height };
       }
 
-      function getChartTimePriceBounds() {
-        const chartBounds = body.chartBounds;
-        if (!chartBounds || typeof chartBounds.startTime === 'undefined' || typeof chartBounds.endTime === 'undefined' || typeof chartBounds.startPrice === 'undefined' || typeof chartBounds.endPrice === 'undefined') {
-           console.error('[handleDrawFigure] Invalid chartBounds received:', chartBounds);
-           throw new Error('Invalid chartBounds received');
-        }
-        const timeRegex = /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/;
-        if (!timeRegex.test(chartBounds.startTime) || !timeRegex.test(chartBounds.endTime)) {
-          console.error('[handleDrawFigure] Invalid time format in chartBounds:', chartBounds);
-          throw new Error('Invalid time format in chartBounds');
-        }
-        const startTimeMs = new Date(chartBounds.startTime).getTime();
-        const endTimeMs = new Date(chartBounds.endTime).getTime();
-
-        if (isNaN(startTimeMs) || isNaN(endTimeMs)) {
-          console.error('[handleDrawFigure] Could not parse time strings in chartBounds:', chartBounds);
-          throw new Error('Could not parse time strings in chartBounds');
-        }
-
-        return {
-          startX: startTimeMs,
-          endX: endTimeMs,
-          startY: chartBounds.startPrice,
-          endY: chartBounds.endPrice
-        }
-      }
-
-      function getScreenCoordinates(time, price) {
+      function getScreenCoordinates(x, y) {
         const chartScreenBounds = getChartScreenBounds();
-        const chartTimePriceBounds = getChartTimePriceBounds();
 
-        const timeMs = new Date(time).getTime();
-         if (isNaN(timeMs)) {
-          console.error(`[handleDrawFigure] Could not parse input time string: ${time}`);
-          throw new Error(`Could not parse input time string: ${time}`);
+        // Validate percentages
+        if (typeof x !== 'number' || x < 0 || x > 100 ||
+            typeof y !== 'number' || y < 0 || y > 100) {
+           console.error(`[handleDrawFigure] Invalid percentage coordinates:`, { x, y });
+           throw new Error(`Invalid percentage coordinates received: x=${x}, y=${y}`);
         }
 
-        const timeRange = chartTimePriceBounds.endX - chartTimePriceBounds.startX;
-        const priceRange = chartTimePriceBounds.endY - chartTimePriceBounds.startY;
-        const screenXRange = chartScreenBounds.endX - chartScreenBounds.startX;
-        const screenYRange = chartScreenBounds.endY - chartScreenBounds.startY;
+        // Calculate absolute screen coordinates from percentages
+        const screenX = chartScreenBounds.startX + (x / 100) * chartScreenBounds.width;
+        // Assuming Y: 0% is top, 100% is bottom. Adjust if mapping is inverted.
+        // const screenY = chartScreenBounds.startY + (y / 100) * chartScreenBounds.height;
+        // Using the previous convention where higher price = lower Y:
+        const screenY = chartScreenBounds.endY - (y / 100) * chartScreenBounds.height;
 
-        if (timeRange === 0 || priceRange === 0) {
-          console.error('[handleDrawFigure] Cannot calculate coordinates: Time or price range is zero.', { chartTimePriceBounds });
-          throw new Error('Time or price range is zero in chart bounds');
-        }
-
-        const timeRatio = Math.max(0, Math.min(1, (timeMs - chartTimePriceBounds.startX) / timeRange));
-        const priceRatio = Math.max(0, Math.min(1, (price - chartTimePriceBounds.startY) / priceRange));
-
-        const screenX = chartScreenBounds.startX + timeRatio * screenXRange;
-        const screenY = chartScreenBounds.endY - priceRatio * screenYRange;
 
         return { x: screenX, y: screenY };
       }
 
       function selectChart() {
         const charts = document.querySelectorAll(chartSelector);
-        const chart = Array.from(charts).find(chart => chart.getAttribute('aria-label')?.includes('Chart'));
+        // Ensure we find the chart meant for drawing (might need refinement)
+        const chart = Array.from(charts).find(c => c.getAttribute('aria-label')?.includes('Chart') && c.offsetParent !== null); // Check if visible
         if (!chart) {
-          console.error(`[handleDrawFigure] Chart element not found: ${chartSelector}`);
-          throw new Error(`Chart element not found: ${chartSelector}`);
+          console.error(`[handleDrawFigure] Visible chart element not found: ${chartSelector}`);
+          throw new Error(`Visible chart element not found: ${chartSelector}`);
         }
         return chart;
       }
 
       async function clickChartAtCoordinates(x, y) {
-        const chart = selectChart()
-        if (!chart) {
-           console.error(`[handleDrawFigure] Chart element not found during click: ${chartSelector}`);
-           throw new Error(`Chart element not found during click: ${chartSelector}`);
-        }
+        const chart = selectChart();
+        // Error handling already in selectChart
 
         chart.dispatchEvent(new MouseEvent('mousedown', {
             bubbles: true,
+            cancelable: true,
+            view: window,
             clientX: x,
             clientY: y
         }))
-        await wait(100);
+        // Reverted wait time to original value if it was changed
+        await wait(100); // Reverted wait time
         chart.dispatchEvent(new MouseEvent('mouseup', {
             bubbles: true,
+            cancelable: true,
+            view: window,
             clientX: x,
             clientY: y
         }))
@@ -969,12 +927,15 @@
           console.error(`[handleDrawFigure] Drawing tool button not found at index ${index} in toolbar: ${drawingToolbarSelector}`);
           throw new Error(`Drawing tool button not found at index ${index}`);
         }
+        // Reverted to dispatching mousedown event
         drawingToolButtons[index].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       }
 
       async function openDrawingTool(index) {
+        // Double click simulation
         clickDrawingToolbar(index);
-        await wait(100);
+        // Reverted wait time to original value if it was changed
+        await wait(100); // Reverted wait time
         clickDrawingToolbar(index);
       }
 
@@ -1002,21 +963,23 @@
            console.error('[handleDrawFigure] Invalid points array received:', points);
            throw new Error('Invalid points array received');
         }
-        console.log('[handleDrawFigure] Drawing points:', points);
+        console.log('[handleDrawFigure] Drawing points (percentages):', points);
         for (const [i, point] of points.entries()) {
-          if (typeof point.time === 'undefined' || typeof point.price === 'undefined') {
-             console.error(`[handleDrawFigure] Invalid point data at index ${i}:`, point);
-             throw new Error(`Invalid point data at index ${i}`);
+          // Validate new point format
+          if (typeof point.x === 'undefined' || typeof point.y === 'undefined') {
+             console.error(`[handleDrawFigure] Invalid point data (missing percent) at index ${i}:`, point);
+             throw new Error(`Invalid point data at index ${i}: Missing x or y`);
           }
-          const { x, y } = getScreenCoordinates(point.time, point.price);
+          // getScreenCoordinates handles percentage validation
+          const { x, y } = getScreenCoordinates(point.x, point.y);
           await clickChartAtCoordinates(x, y);
-          await wait(250);
+          await wait(250); // Wait between placing points
         }
       }
 
       async function selectDrawing(toolbarIndex, dialogIndex) {
         await openDrawingTool(toolbarIndex);
-        await wait(500);
+        await wait(500); // Wait for dialog
         clickDrawingToolDialogItem(dialogIndex);
       }
 
@@ -1039,7 +1002,7 @@
           throw new Error(`Unknown figure type: ${body.figure}`);
       }
 
-      await wait(500);
+      await wait(500); // Wait after selecting tool before drawing
       await drawPoints(body.points);
 
       return {
