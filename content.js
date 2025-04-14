@@ -829,17 +829,29 @@
   }
 
   async function handleDrawFigure(body) {
-    console.log('[content.js] Drawing figure with percentage coordinates:', body);
+    console.log('[content.js] Drawing figure with mixed coordinates:', body);
 
     try {
+      // Check for required chartPriceRange
+      const chartPriceRange = body.chartPriceRange;
+      if (!chartPriceRange || typeof chartPriceRange.topOfChart !== 'number' || typeof chartPriceRange.bottomOfChart !== 'number') {
+        console.error('[handleDrawFigure] Invalid or missing chartPriceRange:', chartPriceRange);
+        throw new Error('Invalid or missing chartPriceRange in request body');
+      }
+      if (chartPriceRange.topOfChart < chartPriceRange.bottomOfChart) {
+         console.warn('[handleDrawFigure] topOfChart is less than bottomOfChart. Ensure this is intended.', chartPriceRange);
+      }
+
       // The drawing process is as follows:
       // 1. double click the right drawing tool
       // 2. select the correct drawing from the dialog
       // 3. iterate through points array, clicking on the chart at each point
-      // - each point has x and y (0-100)
+      // - each point has x (0-100 percentage)
+      // - vertical position determined by snapToPrice (if present) or y (0-100 percentage)
       // - we need to figure out absolute x,y screen coordinates for each point
       // - get the chart's current screen bounds
-      // - calculate absolute coordinates based on percentage and bounds
+      // - get chartPriceRange from args { topOfChart, bottomOfChart }
+      // - calculate absolute coordinates based on point data, bounds, and price range
       // - click on the chart at the calculated absolute coordinates
       // 4. hit escape to stop drawing (TODO)
 
@@ -852,9 +864,8 @@
       const drawingToolDialogItemSelector = 'div[data-role="menuitem"]';
 
       function getChartScreenBounds() {
-        const chart = selectChart(); // Use selectChart to get the correct canvas
+        const chart = selectChart();
         if (!chart) {
-          // selectChart already throws an error, but double-check
           console.error(`[handleDrawFigure] Chart element not found when getting bounds.`);
           throw new Error(`Chart element not found when getting bounds.`);
         }
@@ -862,31 +873,74 @@
         return { startX: bounds.left, startY: bounds.top, endX: bounds.right, endY: bounds.bottom, width: bounds.width, height: bounds.height };
       }
 
-      function getScreenCoordinates(x, y) {
+      // Updated to use point.x and point.y for percentages
+      function getScreenCoordinates(point, chartPriceRange) {
         const chartScreenBounds = getChartScreenBounds();
 
-        // Validate percentages
-        if (typeof x !== 'number' || x < 0 || x > 100 ||
-            typeof y !== 'number' || y < 0 || y > 100) {
-           console.error(`[handleDrawFigure] Invalid percentage coordinates:`, { x, y });
-           throw new Error(`Invalid percentage coordinates received: x=${x}, y=${y}`);
+        // --- X Coordinate (always from point.x percentage) ---
+        const xPercent = point.x; // Use point.x for percentage
+        if (typeof xPercent !== 'number' || xPercent < 0 || xPercent > 100) {
+            console.error(`[handleDrawFigure] Invalid x coordinate percentage:`, xPercent);
+            throw new Error(`Invalid x coordinate percentage received: ${xPercent}`);
         }
+        const screenX = chartScreenBounds.startX + (xPercent / 100) * chartScreenBounds.width;
 
-        // Calculate absolute screen coordinates from percentages
-        const screenX = chartScreenBounds.startX + (x / 100) * chartScreenBounds.width;
-        // Assuming Y: 0% is top, 100% is bottom. Adjust if mapping is inverted.
-        // const screenY = chartScreenBounds.startY + (y / 100) * chartScreenBounds.height;
-        // Using the previous convention where higher price = lower Y:
-        const screenY = chartScreenBounds.endY - (y / 100) * chartScreenBounds.height;
+        // --- Y Coordinate (from snapToPrice OR point.y percentage) ---
+        let screenY;
+        const snapToPrice = point.snapToPrice;
+        const yPercent = point.y; // Use point.y for percentage
 
+        if (snapToPrice != null && typeof snapToPrice === 'number') {
+            // Use snapToPrice
+            const { topOfChart, bottomOfChart } = chartPriceRange;
+            const originalPriceRange = topOfChart - bottomOfChart;
+
+            if (originalPriceRange < 0) {
+                // This case was already handled by a warning, but good to be explicit
+                console.error('[handleDrawFigure] Cannot calculate buffer: topOfChart is less than bottomOfChart.');
+                throw new Error('Invalid price range: topOfChart < bottomOfChart.');
+            }
+
+            // Calculate 5% buffer
+            const bufferAmount = originalPriceRange * 0.05;
+            const adjustedTopOfChart = topOfChart + bufferAmount;
+            const adjustedBottomOfChart = bottomOfChart - bufferAmount;
+            const adjustedPriceRange = adjustedTopOfChart - adjustedBottomOfChart; // This is originalPriceRange * 1.1
+
+            if (adjustedPriceRange <= 0) {
+                // Handle edge case: original range was 0 or negative (negative already caught)
+                console.warn('[handleDrawFigure] Adjusted price range is zero or negative. Mapping snapToPrice to vertical center.');
+                screenY = chartScreenBounds.startY + chartScreenBounds.height / 2;
+            } else {
+                // Clamp price to be within the *adjusted* range before calculating ratio
+                // Note: We clamp to the adjusted range to ensure the ratio stays between 0 and 1
+                // relative to the *expanded* mapping range.
+                const clampedPrice = Math.max(adjustedBottomOfChart, Math.min(adjustedTopOfChart, snapToPrice));
+                const priceRatio = (clampedPrice - adjustedBottomOfChart) / adjustedPriceRange;
+
+                // Calculate screenY using the ratio derived from the adjusted range
+                screenY = chartScreenBounds.endY - priceRatio * chartScreenBounds.height;
+            }
+
+        } else if (yPercent != null && typeof yPercent === 'number') {
+            // Use yPercent (point.y)
+            if (yPercent < 0 || yPercent > 100) {
+                console.error(`[handleDrawFigure] Invalid y coordinate percentage:`, yPercent);
+                throw new Error(`Invalid y coordinate percentage received: ${yPercent}`);
+            }
+            screenY = chartScreenBounds.endY - (yPercent / 100) * chartScreenBounds.height;
+        } else {
+            // Invalid point: missing both snapToPrice and y
+            console.error('[handleDrawFigure] Point missing required vertical coordinate (snapToPrice or y):', point);
+            throw new Error('Point must have either snapToPrice or y');
+        }
 
         return { x: screenX, y: screenY };
       }
 
       function selectChart() {
         const charts = document.querySelectorAll(chartSelector);
-        // Ensure we find the chart meant for drawing (might need refinement)
-        const chart = Array.from(charts).find(c => c.getAttribute('aria-label')?.includes('Chart') && c.offsetParent !== null); // Check if visible
+        const chart = Array.from(charts).find(c => c.getAttribute('aria-label')?.includes('Chart') && c.offsetParent !== null);
         if (!chart) {
           console.error(`[handleDrawFigure] Visible chart element not found: ${chartSelector}`);
           throw new Error(`Visible chart element not found: ${chartSelector}`);
@@ -896,23 +950,12 @@
 
       async function clickChartAtCoordinates(x, y) {
         const chart = selectChart();
-        // Error handling already in selectChart
-
         chart.dispatchEvent(new MouseEvent('mousedown', {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-            clientX: x,
-            clientY: y
+            bubbles: true, cancelable: true, view: window, clientX: x, clientY: y
         }))
-        // Reverted wait time to original value if it was changed
-        await wait(100); // Reverted wait time
+        await wait(100);
         chart.dispatchEvent(new MouseEvent('mouseup', {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-            clientX: x,
-            clientY: y
+            bubbles: true, cancelable: true, view: window, clientX: x, clientY: y
         }))
       }
 
@@ -927,15 +970,12 @@
           console.error(`[handleDrawFigure] Drawing tool button not found at index ${index} in toolbar: ${drawingToolbarSelector}`);
           throw new Error(`Drawing tool button not found at index ${index}`);
         }
-        // Reverted to dispatching mousedown event
         drawingToolButtons[index].dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       }
 
       async function openDrawingTool(index) {
-        // Double click simulation
         clickDrawingToolbar(index);
-        // Reverted wait time to original value if it was changed
-        await wait(100); // Reverted wait time
+        await wait(100);
         clickDrawingToolbar(index);
       }
 
@@ -958,28 +998,30 @@
         return;
       }
 
-      async function drawPoints(points) {
+      // Updated to use point.x and point.y for percentages
+      async function drawPoints(points, chartPriceRange) {
         if (!points || !Array.isArray(points)) {
            console.error('[handleDrawFigure] Invalid points array received:', points);
            throw new Error('Invalid points array received');
         }
-        console.log('[handleDrawFigure] Drawing points (percentages):', points);
+        console.log('[handleDrawFigure] Drawing points (mixed %/price):', points);
         for (const [i, point] of points.entries()) {
-          // Validate new point format
-          if (typeof point.x === 'undefined' || typeof point.y === 'undefined') {
-             console.error(`[handleDrawFigure] Invalid point data (missing percent) at index ${i}:`, point);
-             throw new Error(`Invalid point data at index ${i}: Missing x or y`);
+          // Validate point structure: must have x and EITHER y OR snapToPrice
+          if (typeof point.x === 'undefined' || (typeof point.y === 'undefined' && typeof point.snapToPrice === 'undefined')) {
+             console.error(`[handleDrawFigure] Invalid point data at index ${i}:`, point);
+             throw new Error(`Invalid point data at index ${i}: Must have x and either y or snapToPrice`);
           }
-          // getScreenCoordinates handles percentage validation
-          const { x, y } = getScreenCoordinates(point.x, point.y);
+
+          // getScreenCoordinates handles detailed validation of values
+          const { x, y } = getScreenCoordinates(point, chartPriceRange);
           await clickChartAtCoordinates(x, y);
-          await wait(250); // Wait between placing points
+          await wait(250);
         }
       }
 
       async function selectDrawing(toolbarIndex, dialogIndex) {
         await openDrawingTool(toolbarIndex);
-        await wait(500); // Wait for dialog
+        await wait(500);
         clickDrawingToolDialogItem(dialogIndex);
       }
 
@@ -1002,8 +1044,9 @@
           throw new Error(`Unknown figure type: ${body.figure}`);
       }
 
-      await wait(500); // Wait after selecting tool before drawing
-      await drawPoints(body.points);
+      await wait(500);
+      // Pass chartPriceRange to drawPoints
+      await drawPoints(body.points, chartPriceRange);
 
       return {
         success: true,
