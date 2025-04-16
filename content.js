@@ -38,7 +38,7 @@
   const SELECTORS = {
     tabBar: '.widgetbar-tabs .toolbar-S4V6IoxY',
     panelContainer: '.widgetbar-pages',
-    button: '.button-I_wb5FjE.apply-common-tooltip.common-tooltip-vertical.accessible-I_wb5FjE',
+    button: '.button-I_wb5FjE+.button-I_wb5FjE',
     defaultPanelContent: '.widgetbar-pagescontent',
     activeButtonClass: 'isActive-I_wb5FjE',
     widgetBar: '.widgetbar-widget',
@@ -186,9 +186,14 @@
     // Update button icon - Replace with Candle icon
     const iconSpan = candleButton.querySelector('span[role="img"]');
     if (iconSpan) {
-      iconSpan.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-        <path fill="currentColor" d="M12,2C6.5,2,2,6.5,2,12c0,5.5,4.5,10,10,10s10-4.5,10-10C22,6.5,17.5,2,12,2z M16,16.2c0,0.6-0.5,1-1,1h-6c-0.6,0-1-0.5-1-1v-0.8c0-0.3,0.1-0.5,0.4-0.7l1.5-1c0.7-0.5,1.3-1.1,1.7-1.9c0.1-0.2,0.4-0.4,0.7-0.4h0.8c0.3,0,0.5,0.1,0.7,0.4c0.4,0.8,1,1.4,1.7,1.9l1.5,1c0.2,0.2,0.4,0.4,0.4,0.7V16.2z M14,8.5L12,7L10,8.5V10h4V8.5z"/>
-      </svg>`;
+      iconSpan.classList.add('rounded-sm');
+      iconSpan.innerHTML = `<svg width="44" height="44" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path opacity="0.5" d="M42.3573 67.7695C51.2143 65.9959 62.6667 59.6237 62.6667 43.1479C62.6667 28.1567 51.6932 18.172 43.8023 13.5849C42.0485 12.5649 40 13.905 40 15.9309V21.1102C40 25.1959 38.283 32.6532 33.5117 35.7557C31.075 37.3395 28.44 34.968 28.1453 32.078L27.9017 29.7037C27.6183 26.944 24.8077 25.2695 22.6033 26.9525C18.6395 29.97 14.5 35.2684 14.5 43.145C14.5 63.2929 29.4855 68.3334 36.9768 68.3334C37.4151 68.3334 37.8722 68.3192 38.3482 68.2909C39.6118 68.1322 38.3482 68.5714 42.3573 67.7667" fill="#9492F8"/>
+<path d="M28.6667 58.258C28.6667 65.6813 34.6479 67.9763 38.3482 68.2937C39.6119 68.135 38.3482 68.5742 42.3574 67.7695C45.3012 66.7297 48.5001 64.0607 48.5001 58.258C48.5001 54.5832 46.1796 52.3137 44.3634 51.2512C43.8081 50.9253 43.1621 51.3362 43.1139 51.9765C42.9552 54.0108 41.0002 55.6315 39.6714 54.0845C38.4956 52.7188 37.9997 50.7213 37.9997 49.4435V47.7718C37.9997 46.7688 36.9882 46.1002 36.1212 46.6158C32.9026 48.5227 28.6667 52.4497 28.6667 58.258Z" fill="#9492F8"/>
+</svg>
+
+
+`;
     }
     
     // Add click handler
@@ -595,24 +600,24 @@
   function handleSetTimeframe(body) {
     // console.log('Setting timeframe to:', body.timeframe);
     // find all buttons with class ".item-SqYYy1zF"
-    const buttons = document.querySelectorAll('.item-SqYYy1zF');
-    // console.log('Button count:', buttons.length);
-    let buttonFound = false;
-    buttons.forEach(button => {
-      // console.log('Button:', button.textContent);
-      // find the one whose text is the timeframe
-      if (button.textContent === body.timeframe) {
-        button.click();
-        buttonFound = true;
-        return;
-      }
-    });
-    if (!buttonFound) {
+    function getDataName() {
+      const abbr = body.timeframe == "1Y" ? "12M" : body.timeframe == "5Y" ? "60M" : body.timeframe
+      return `date-range-tab-${abbr}`
+    }
+
+    const button = document.querySelector(
+      `div[data-name="date-ranges-tabs"] button[data-name="${getDataName()}"]`
+    )
+    
+    if (!button) {
       return {
         success: false,
         error:new Error('Timeframe not found')
       }
     }
+
+    button.click();
+
     return {
       success: true,
       body: {
@@ -842,11 +847,11 @@
     try {
       // Check for required chartPriceRange
       const chartPriceRange = body.chartPriceRange;
-      if (!chartPriceRange || typeof chartPriceRange.topOfChart !== 'number' || typeof chartPriceRange.bottomOfChart !== 'number') {
+      if (!chartPriceRange || typeof chartPriceRange.actualPriceAtTop !== 'number' || typeof chartPriceRange.actualPriceAtBottom !== 'number') {
         console.error('[handleDrawFigure] Invalid or missing chartPriceRange:', chartPriceRange);
         throw new Error('Invalid or missing chartPriceRange in request body');
       }
-      if (chartPriceRange.topOfChart < chartPriceRange.bottomOfChart) {
+      if (chartPriceRange.actualPriceAtTop < chartPriceRange.actualPriceAtBottom) {
          console.warn('[handleDrawFigure] topOfChart is less than bottomOfChart. Ensure this is intended.', chartPriceRange);
       }
 
@@ -895,9 +900,10 @@
         const yPercent = point.y; // Use point.y for percentage
 
         if (snapToPrice != null && typeof snapToPrice === 'number') {
+            console.log('[handleDrawFigure] Using snapToPrice:', snapToPrice);
             // Use snapToPrice
-            const { topOfChart, bottomOfChart } = chartPriceRange;
-            const originalPriceRange = topOfChart - bottomOfChart;
+            const { actualPriceAtTop, actualPriceAtBottom } = chartPriceRange;
+            const originalPriceRange = actualPriceAtTop - actualPriceAtBottom;
 
             if (originalPriceRange < 0) {
                 // This case was already handled by a warning, but good to be explicit
@@ -905,12 +911,11 @@
                 throw new Error('Invalid price range: topOfChart < bottomOfChart.');
             }
 
-            // Calculate 5% buffer - set to 0 for now
-            const bufferAmount = originalPriceRange * 0.03;
-            const adjustedTopOfChart = topOfChart + bufferAmount;
-            const adjustedBottomOfChart = bottomOfChart - bufferAmount;
+            // Calculate extent buffers
+            const adjustedTopOfChart = actualPriceAtTop + (originalPriceRange * 0.0384);
+            const adjustedBottomOfChart = actualPriceAtBottom - (originalPriceRange * 0.00);
             const adjustedPriceRange = adjustedTopOfChart - adjustedBottomOfChart; // This is originalPriceRange * 1.1
-
+            console.log('[handleDrawFigure] Adjusted price range:', adjustedPriceRange);
             if (adjustedPriceRange <= 0) {
                 // Handle edge case: original range was 0 or negative (negative already caught)
                 console.warn('[handleDrawFigure] Adjusted price range is zero or negative. Mapping snapToPrice to vertical center.');
@@ -921,12 +926,13 @@
                 // relative to the *expanded* mapping range.
                 const clampedPrice = Math.max(adjustedBottomOfChart, Math.min(adjustedTopOfChart, snapToPrice));
                 const priceRatio = (clampedPrice - adjustedBottomOfChart) / adjustedPriceRange;
-
+                console.log('[handleDrawFigure] Price ratio:', priceRatio);
                 // Calculate screenY using the ratio derived from the adjusted range
                 screenY = chartScreenBounds.endY - priceRatio * chartScreenBounds.height;
             }
 
         } else if (yPercent != null && typeof yPercent === 'number') {
+            console.log('[handleDrawFigure] Using yPercent:', yPercent);
             // Use yPercent (point.y)
             if (yPercent < 0 || yPercent > 100) {
                 console.error(`[handleDrawFigure] Invalid y coordinate percentage:`, yPercent);
